@@ -1,23 +1,12 @@
 import ast
 import sys
 
-assert len(sys.argv) == 2, 'Usage: "python ast_parser.py <filename>"'
-file = sys.argv[-1]
 
+DECISION_POINTS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
-with open(file, 'r') as f:
-    file_text = f.read()
-    file_lines = file_text.splitlines()
-
-a = ast.parse(file_text)
-
-executable_logic_points = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-
-source_code_to_analyze = [f for f in a.body if isinstance(f, executable_logic_points)]
 
 def iterate(syntax):
-    # logic_points = [ast.IfExp]
-    # print(file_lines[stmt.lineno -1])
+    # print(file_lines[syntax.lineno -1])
     n_stmt = 1
     for maybe_stmt in syntax.body:
         if not isinstance(maybe_stmt, ast.stmt):
@@ -39,12 +28,39 @@ def iterate(syntax):
 
     return n_stmt
 
+def print_source_line(source, line_no):
+    print(source[line_no - 1])
 
-for syntax in source_code_to_analyze:
-    print(file_lines[syntax.lineno -1])
-    print(iterate(syntax))
-    if isinstance(syntax, ast.ClassDef):
-        for method in [f for f in syntax.body if isinstance(f, executable_logic_points)]:
-            # for classes we also iterate each method
-            print(file_lines[method.lineno -1])
-            print(iterate(method))
+
+if __name__ == '__main__':
+
+    # parse argv
+    assert len(sys.argv) == 3, 'Usage: "python ast_parser.py <filename> <thold>"'
+    script, file, thold_str = sys.argv
+
+    thold = int(thold_str)
+    # currently thold is just an int applied to everything. it is probably ok, for classes to have different thold
+
+    # read file
+    with open(file, 'r') as f:
+        file_text = f.read()
+        file_lines = file_text.splitlines()
+
+    a = ast.parse(file_text)
+
+    source_code_to_analyze = [f for f in a.body if isinstance(f, DECISION_POINTS)]
+
+    # start iterating over syntax
+    for syntax in source_code_to_analyze:
+        score = iterate(syntax)
+        if score >= thold:
+            print_source_line(file_lines, syntax.lineno)
+            print(score)
+
+        if isinstance(syntax, ast.ClassDef):
+            for method in [f for f in syntax.body if isinstance(f, DECISION_POINTS)]:
+                # for classes we also iterate each method
+                score = iterate(method)
+                if score >= thold:
+                    print_source_line(file_lines, method.lineno)
+                    print(score)
