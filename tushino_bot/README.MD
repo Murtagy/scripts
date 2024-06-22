@@ -7,4 +7,10 @@ token.sh
 ```
 
 устанавливаем зависимости
-запускаем run.sh
+```
+python3 -m env environment
+source environment/bin/activate
+pip3 install requirements.txt
+```
+
+запускаем через run.sh
