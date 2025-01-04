@@ -104,7 +104,7 @@ def collect_new_frags() -> tuple[list,list]:
 
         for replay in get_new_replays(known_names):
             known_names.append(replay.name)
-            parsed_games.append(replay.name
+            parsed_games.append(replay.name)
             try:
                 replay_frags = get_frags(replay.url, replay.name)
                 frags.extend(replay_frags)
