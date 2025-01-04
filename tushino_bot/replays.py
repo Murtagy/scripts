@@ -95,14 +95,16 @@ def get_new_replays(known_names: Sequence[str]):
     return replays
 
 
-def collect_new_frags():
+def collect_new_frags() -> tuple[list,list]:
     frags = []
+    parsed_games = []
     try:
         with open('parsed_replays.json', 'r') as f:
             known_names = json.load(f)
 
         for replay in get_new_replays(known_names):
             known_names.append(replay.name)
+            parsed_games.append(replay.name
             try:
                 replay_frags = get_frags(replay.url, replay.name)
                 frags.extend(replay_frags)
@@ -117,7 +119,7 @@ def collect_new_frags():
     except Exception as e:
         print(e)
 
-    return frags
+    return frags, parsed_games
 
 
 if __name__ == "__main__":
@@ -125,6 +127,6 @@ if __name__ == "__main__":
     #     'https://replay.tsgames.ru/ajax.php?a=gl&params%5Bf%5D=T4.2024-06-21-23-40-40.tsg%40170_fra_Ihtamnet_M_v15.tem_kujari&params%5Bar%5D=1&params%5Ba%5D=3',
     #     '[DER]'
     # )
-    frags = collect_new_frags()
+    frags, games = collect_new_frags()
     for f in frags:
         print(f)
