@@ -42,14 +42,12 @@ async def create_poll(context) -> None:
 async def report_frags(context) -> None:
     # ищем новые фраги и пуляем их в канал
     now = datetime.datetime.now(pytz.timezone('Europe/Moscow'))
-    if now.hour > 21 and now.hour <= 23:
+    if now.hour >= 21 and now.hour <= 23:
         # до 12 ночи реплеи недоступны
         return None
     new_frags, parsed_games = replays.collect_new_frags()
     new_frags = [f for f in new_frags if f.killer.startswith('[DER]')]
     if len(new_frags) == 0:
-        if parsed_games:
-            await context.bot.send_message(CHAT_ID, 'Реплеи где фрагов найдено не было:' + str(parsed_games) + '\n Временное сообщение, хочу понять почему часть реплеев бот игнорит')
         return
 
     message: list[str] = []
