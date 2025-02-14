@@ -14,14 +14,14 @@ logger = logging.getLogger
 
 
 now = datetime.datetime.now(pytz.timezone('Europe/Moscow'))
-if now.hour < 12:
-    scheduled_time = now + datetime.timedelta(hours=15-now.hour)
-else:
-    scheduled_time = now + datetime.timedelta(days=1)
-scheduled_time = now + datetime.timedelta(seconds=10)
+
+scheduled_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
+if now.hour >= 9:
+    scheduled_time += datetime.timedelta(days=1)
 logger().info(f'Создам опрос в {scheduled_time}')
 
 TOKEN = os.environ['BOT_TOKEN']
+AI_KEY = os.environ['AI_KEY']
 CHAT_ID = os.environ['CHAT_ID']
 
 
@@ -41,6 +41,7 @@ async def _create_poll(context: ContextTypes) -> None:
         ["Пт1", "Пт2", "Пт не играю", "Сб1", "Сб2", "Сб не играю"],
         allows_multiple_answers=True,
         is_anonymous=False,
+        message_thread_id=54606
     )
     await message.pin()
 
@@ -50,26 +51,54 @@ async def _create_poll(context: ContextTypes) -> None:
         ["Пт1", "Пт2", "Сб1", "Сб2", "Буду пьян, кто КОшит то"],
         allows_multiple_answers=True,
         is_anonymous=False,
+        message_thread_id=54606
     )
     await message.pin()
+
+
+import os
+import google.generativeai as genai
+
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+
+# Create the model
+generation_config = {
+  "temperature": 1,
+  "top_p": 0.95,
+  "top_k": 40,
+  "max_output_tokens": 8192,
+  "response_mime_type": "text/plain",
+}
+
+model = genai.GenerativeModel(
+  model_name="gemini-2.0-flash",
+  generation_config=generation_config,
+  system_instruction="Reply in Russian with sarcastic tone. You are replyingin the in-game squad channel or Arma3. Joke something about the players not being able to kill somebody or that you will never stop defending the trigger(main base). Be playful. ",
+)
+
+chat_session = model.start_chat(
+  history=[
+  ]
+)
 
 
 async def any_message(update: Update, context: ContextTypes) -> None:
     if update.message is None:
         return
     CHAT_ID = update.message.chat.id
-    print(update)
     if 'der_ai_bot' in update.message.text.lower():
-        response = random.choice([
-            'Работаю во благо ДЭРов...',
-            'Всегда на службе',
-            'Нужно больше золота',
-            'Жизнь за Нерзулла',
-            'Как скажешь друг',
-            'Согласен',
-            'Воистину',
-            'DER-DER-DER!',
-        ])
+        response = chat_session.send_message(update.message.text.lower())
+        
+        # response = random.choice([
+        #     'Работаю во благо ДЭРов...',
+        #     'Всегда на службе',
+        #     'Нужно больше золота',
+        #     'Жизнь за Нерзулла',
+        #     'Как скажешь друг',
+        #     'Согласен',
+        #     'Воистину',
+        #     'DER-DER-DER!',
+        # ])
         await context.bot.send_message(CHAT_ID, response)
     else:
         pass
