@@ -65,6 +65,8 @@ async def report_frags(context) -> None:
 
     m = '\n'.join(message)
     await context.bot.send_message(CHAT_ID, m)
+    response = (await chat.send_message('Вот фраги с последней игры, прокомментируй. Если там больше 4 - будь позитивен пожалуйста, это хороший результат:' + m)).text
+    await context.bot.send_message(CHAT_ID, response)
 
 
 async def _create_poll(context: ContextTypes) -> None:
@@ -90,9 +92,9 @@ async def _create_poll(context: ContextTypes) -> None:
 
 
 import os
-import google.generativeai as genai
+from google import genai
 
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+client = genai.Client(api_key=AI_KEY)
 
 # Create the model
 generation_config = {
@@ -101,18 +103,15 @@ generation_config = {
   "top_k": 40,
   "max_output_tokens": 8192,
   "response_mime_type": "text/plain",
+  "system_instruction": "Reply in Russian with sarcastic tone. You are replyingin the in-game squad channel or Arma3. Joke something about the players not being able to kill somebody or that you will never stop defending the trigger(main base). Be playful. Make jokes about Vaven and spades he uses for trenches. Jolywitz and his ability to die in vehicles. Nunel and Dota2",
 }
 
-model = genai.GenerativeModel(
-  model_name="gemini-2.0-flash",
-  generation_config=generation_config,
-  system_instruction="Reply in Russian with sarcastic tone. You are replyingin the in-game squad channel or Arma3. Joke something about the players not being able to kill somebody or that you will never stop defending the trigger(main base). Be playful. ",
-)
-
-chat_session = model.start_chat(
-  history=[
-  ]
-)
+# model = genai.GenerativeModel(
+#   model_name="gemini-2.0-flash",
+#   generation_config=generation_config,
+#   system_instruction=
+# )
+chat = client.aio.chats.create(model='gemini-2.0-flash-001', config=generation_config)
 
 
 async def any_message(update: Update, context: ContextTypes) -> None:
@@ -120,7 +119,7 @@ async def any_message(update: Update, context: ContextTypes) -> None:
         return
     CHAT_ID = update.message.chat.id
     if 'der_ai_bot' in update.message.text.lower():
-        response = chat_session.send_message(update.message.text.lower())
+        response = (await chat.send_message(update.message.text.lower())).text
         
         # response = random.choice([
         #     'Работаю во благо ДЭРов...',
