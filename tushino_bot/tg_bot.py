@@ -5,12 +5,17 @@ from telegram.ext import Application, MessageHandler, CallbackContext, ContextTy
 import pytz
 import random
 import logging
+import replays
+from collections import defaultdict
 
 # Enable logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger
+
+# Set httpx logger level to WARNING (or ERROR)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 now = datetime.datetime.now(pytz.timezone('Europe/Moscow'))
@@ -32,6 +37,34 @@ async def create_poll(context) -> None:
 
     if now.weekday() in [3]:
         await _create_poll(context)
+
+
+async def report_frags(context) -> None:
+    # ищем новые фраги и пуляем их в канал
+    now = datetime.datetime.now(pytz.timezone('Europe/Moscow'))
+    if now.hour >= 21 and now.hour <= 23:
+        # до 12 ночи реплеи недоступны
+        return None
+    new_frags, parsed_games = replays.collect_new_frags()
+    new_frags = [f for f in new_frags if f.killer.startswith('[DER]')]
+    if len(new_frags) == 0:
+        return
+
+    message: list[str] = []
+
+    by_game = defaultdict(list)
+    for f in new_frags:
+        by_game[f.mission].append(f)
+
+    for mission, frags in by_game.items():
+        message.append(f'Игра {mission}:')
+        for f in frags:
+            message.append(' ' + str(f))
+        message.append('')
+        message.append('')
+
+    m = '\n'.join(message)
+    await context.bot.send_message(CHAT_ID, m)
 
 
 async def _create_poll(context: ContextTypes) -> None:
@@ -108,6 +141,7 @@ def main():
     application = Application.builder().token(TOKEN).build()
     application.add_handler(MessageHandler(None, any_message))
     application.job_queue.run_repeating(create_poll, interval=60*60*24, first=scheduled_time)
+    application.job_queue.run_repeating(report_frags, interval=60*60*1, first=now + datetime.timedelta(seconds=5))
     application.run_polling()
 
 
