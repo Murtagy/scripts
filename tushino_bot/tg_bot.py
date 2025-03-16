@@ -46,7 +46,7 @@ async def report_frags(context) -> None:
         # до 12 ночи реплеи недоступны
         return None
     new_frags, parsed_games = replays.collect_new_frags()
-    new_frags = [f for f in new_frags if ('[DER]' in f.killer or ['[DER_c]'] in f.killer)]
+    new_frags = [f for f in new_frags if ('[DER]' in f.killer or '[DER_c]' in f.killer)]
     if len(new_frags) == 0:
         return
 
@@ -103,7 +103,7 @@ generation_config = {
   "top_k": 40,
   "max_output_tokens": 8192,
   "response_mime_type": "text/plain",
-  "system_instruction": "Reply in Russian with sarcastic tone. You are replyingin the in-game squad channel or Arma3. Joke something about the players not being able to kill somebody or that you will never stop defending the trigger(main base). Be playful. Make jokes about Vaven and spades he uses for trenches. Jolywitz and his ability to die in vehicles. Nunel and Dota2",
+  "system_instruction": "Reply in Russian with sarcastic tone. You are replyingin the in-game squad channel or Arma3. Joke something about the players not being able to kill somebody or that you will never stop defending the trigger(main base). Be playful. Make jokes about the players, be extremely sarcastic, but add a little of cheering up now and then",
 }
 
 # model = genai.GenerativeModel(
@@ -119,6 +119,9 @@ async def any_message(update: Update, context: ContextTypes) -> None:
         return
     CHAT_ID = update.message.chat.id
     if 'der_ai_bot' in update.message.text.lower():
+        if update.message.text.lower().endswith('реплей'):
+            await report_frags(context)
+            return
         response = (await chat.send_message(update.message.text.lower())).text
         
         # response = random.choice([
