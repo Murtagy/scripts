@@ -46,7 +46,7 @@ async def report_frags(context) -> None:
         # до 12 ночи реплеи недоступны
         return None
     new_frags, parsed_games = replays.collect_new_frags()
-    new_frags = [f for f in new_frags if f.killer.startswith('[DER]')]
+    new_frags = [f for f in new_frags if ('[DER]' in f.killer or ['[DER_c]'] in f.killer)]
     if len(new_frags) == 0:
         return
 
