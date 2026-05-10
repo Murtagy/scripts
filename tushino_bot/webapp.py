@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl
 
+import requests
+
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -19,6 +21,7 @@ from slots_service import ConflictError, NotFoundError, PermissionError, Validat
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+CHAT_ID = os.environ.get("CHAT_ID", "")
 ALLOW_INSECURE_WEBAPP = os.environ.get("ALLOW_INSECURE_WEBAPP", "0") == "1"
 ADMIN_USER_IDS = {
     int(x.strip())
@@ -160,7 +163,25 @@ def require_user(init_data: str | None) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail="BOT_TOKEN missing")
     if not init_data:
         raise HTTPException(status_code=401, detail="Telegram init data missing")
-    return validate_init_data(init_data, BOT_TOKEN)
+    user = validate_init_data(init_data, BOT_TOKEN)
+    ensure_chat_member(user["user_id"])
+    return user
+
+
+def ensure_chat_member(user_id: int) -> None:
+    if not CHAT_ID:
+        raise HTTPException(status_code=500, detail="CHAT_ID missing")
+    r = requests.get(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/getChatMember",
+        params={"chat_id": CHAT_ID, "user_id": user_id},
+        timeout=20,
+    )
+    data = r.json()
+    if not data.get("ok"):
+        raise HTTPException(status_code=403, detail="User not allowed")
+    status = data["result"].get("status")
+    if status not in {"creator", "administrator", "member", "restricted"}:
+        raise HTTPException(status_code=403, detail="Only members of target chat allowed")
 
 
 def validate_init_data(init_data: str, bot_token: str) -> dict[str, Any]:

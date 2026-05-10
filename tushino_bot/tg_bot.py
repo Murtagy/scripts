@@ -43,6 +43,7 @@ ADMIN_USER_IDS = {
     for x in os.environ.get("ADMIN_USER_IDS", "").split(",")
     if x.strip()
 }
+ALLOWED_MEMBER_STATUSES = {"creator", "administrator", "member", "restricted", "owner"}
 
 chat = None
 if AI_KEY:
@@ -80,10 +81,20 @@ def is_admin(user_id: int) -> bool:
     return not ADMIN_USER_IDS or user_id in ADMIN_USER_IDS
 
 
+async def get_chat_member(bot, user_id: int):
+    return await bot.get_chat_member(chat_id=CHAT_ID, user_id=user_id)
+
+
+async def ensure_chat_member(bot, user_id: int) -> None:
+    member = await get_chat_member(bot, user_id)
+    if member.status not in ALLOWED_MEMBER_STATUSES:
+        raise PermissionError("Not a member of allowed chat")
+
+
 async def resolve_display_name(bot, user) -> str:
     fallback = user.first_name or user.full_name or (f"@{user.username}" if user.username else str(user.id))
     try:
-        member = await bot.get_chat_member(chat_id=CHAT_ID, user_id=user.id)
+        member = await get_chat_member(bot, user.id)
         custom_title = getattr(member, "custom_title", None)
         if custom_title:
             return custom_title
@@ -170,7 +181,12 @@ async def report_frags(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def command_app(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message is None:
+    if update.message is None or update.effective_user is None:
+        return
+    try:
+        await ensure_chat_member(context.bot, update.effective_user.id)
+    except Exception:
+        await update.message.reply_text("Only members of target chat can use this bot menu")
         return
     if not WEBAPP_URL:
         await update.message.reply_text("WEBAPP_URL not set")
@@ -189,7 +205,14 @@ async def command_app(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def command_week_init(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or not is_admin(update.effective_user.id):
+    if update.effective_user is None:
+        return
+    try:
+        await ensure_chat_member(context.bot, update.effective_user.id)
+    except Exception:
+        await update.effective_message.reply_text("Only members of target chat can use this bot menu")
+        return
+    if not is_admin(update.effective_user.id):
         await update.effective_message.reply_text("Admin only")
         return
     await upsert_week_control_message(context.bot)
@@ -197,7 +220,14 @@ async def command_week_init(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def command_week_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None or not is_admin(update.effective_user.id):
+    if update.effective_user is None:
+        return
+    try:
+        await ensure_chat_member(context.bot, update.effective_user.id)
+    except Exception:
+        await update.effective_message.reply_text("Only members of target chat can use this bot menu")
+        return
+    if not is_admin(update.effective_user.id):
         await update.effective_message.reply_text("Admin only")
         return
     await upsert_week_control_message(context.bot, force_new=True)
@@ -205,6 +235,13 @@ async def command_week_reset(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def command_slots(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None:
+        return
+    try:
+        await ensure_chat_member(context.bot, update.effective_user.id)
+    except Exception:
+        await update.effective_message.reply_text("Only members of target chat can use this bot menu")
+        return
     week = slots_service.create_or_get_active_week()
     await update.effective_message.reply_text(week_control.build_week_text(week))
 
