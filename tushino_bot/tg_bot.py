@@ -80,6 +80,18 @@ def is_admin(user_id: int) -> bool:
     return not ADMIN_USER_IDS or user_id in ADMIN_USER_IDS
 
 
+async def resolve_display_name(bot, user) -> str:
+    fallback = user.first_name or user.full_name or (f"@{user.username}" if user.username else str(user.id))
+    try:
+        member = await bot.get_chat_member(chat_id=CHAT_ID, user_id=user.id)
+        custom_title = getattr(member, "custom_title", None)
+        if custom_title:
+            return custom_title
+    except Exception as exc:
+        logger.warning("Could not resolve custom title for %s: %s", user.id, exc)
+    return fallback
+
+
 async def upsert_week_control_message(bot, force_new: bool = False) -> None:
     await week_control.upsert_week_control_message(bot, force_new=force_new)
 
@@ -220,7 +232,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             user = {
                 "user_id": update.effective_user.id,
                 "username": f"@{update.effective_user.username}" if update.effective_user.username else None,
-                "display_name": update.effective_user.first_name or update.effective_user.full_name,
+                "display_name": await resolve_display_name(context.bot, update.effective_user),
             }
             item = slots_service.roll_for_item(item_id, user)
             week = slots_service.get_active_week()
@@ -234,7 +246,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             user = {
                 "user_id": update.effective_user.id,
                 "username": f"@{update.effective_user.username}" if update.effective_user.username else None,
-                "display_name": update.effective_user.first_name or update.effective_user.full_name,
+                "display_name": await resolve_display_name(context.bot, update.effective_user),
             }
             item = slots_service.call_item(item_id, user)
             week = slots_service.get_active_week()
