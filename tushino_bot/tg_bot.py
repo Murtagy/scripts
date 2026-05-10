@@ -1,82 +1,99 @@
 import datetime
-import os
-from telegram import Update
-from telegram.ext import Application, MessageHandler, CallbackContext, ContextTypes
-import pytz
-import random
 import logging
-import replays
+import os
+import threading
 from collections import defaultdict
 
-# Enable logging
+import pytz
+import uvicorn
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
+
+import replays
+import slots_service
+import week_control
+from db import init_db
+from slots_service import NotFoundError
+from webapp import app as fastapi_app
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
-logger = logging.getLogger
-
-# Set httpx logger level to WARNING (or ERROR)
+logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+TZ = pytz.timezone("Europe/Moscow")
+TOKEN = os.environ["BOT_TOKEN"]
+CHAT_ID = os.environ["CHAT_ID"]
+AI_KEY = os.environ.get("AI_KEY")
+THREAD_ID = int(os.environ.get("PLAYABLE_THREAD_ID", "54606"))
+WEBAPP_URL = os.environ.get("WEBAPP_URL", "")
+WEBAPP_HOST = os.environ.get("WEBAPP_HOST", "127.0.0.1")
+WEBAPP_PORT = int(os.environ.get("WEBAPP_PORT", "8000"))
+ADMIN_USER_IDS = {
+    int(x.strip())
+    for x in os.environ.get("ADMIN_USER_IDS", "").split(",")
+    if x.strip()
+}
 
-now = datetime.datetime.now(pytz.timezone('Europe/Moscow'))
+chat = None
+if AI_KEY:
+    from google import genai
 
-scheduled_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
-if now.hour >= 9:
-    scheduled_time += datetime.timedelta(days=1)
-logger().info(f'Создам опрос в {scheduled_time}')
-
-TOKEN = os.environ['BOT_TOKEN']
-AI_KEY = os.environ['AI_KEY']
-CHAT_ID = os.environ['CHAT_ID']
-
-
-
-async def create_poll(context) -> None:
-    # По четвергам создаем опрос о посещении СГ
-    now = datetime.datetime.now()
-
-    if now.weekday() in [3]:
-        await _create_poll(context)
+    client = genai.Client(api_key=AI_KEY)
+    generation_config = {
+        "temperature": 1,
+        "top_p": 0.95,
+        "top_k": 40,
+        "max_output_tokens": 8192,
+        "response_mime_type": "text/plain",
+        "system_instruction": "Reply in Russian with sarcastic tone. You are replyingin the in-game squad channel or Arma3. Joke something about the players not being able to kill somebody or that you will never stop defending the trigger(main base). Be playful. Make jokes about the players, be extremely sarcastic, but add a little of cheering up now and then",
+    }
+    chat = client.aio.chats.create(model="gemini-2.0-flash-001", config=generation_config)
 
 
-async def report_frags(context) -> None:
-    # ищем новые фраги и пуляем их в канал
-    now = datetime.datetime.now(pytz.timezone('Europe/Moscow'))
-    if now.hour >= 21 and now.hour <= 23:
-        # до 12 ночи реплеи недоступны
-        return None
-    new_frags, parsed_games = replays.collect_new_frags()
-    new_frags = [f for f in new_frags if ('[DER]' in f.killer or '[DER_c]' in f.killer)]
-    if len(new_frags) == 0:
+def start_web_server() -> None:
+    config = uvicorn.Config(fastapi_app, host=WEBAPP_HOST, port=WEBAPP_PORT, log_level="info")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    logger.info("FastAPI started on %s:%s", WEBAPP_HOST, WEBAPP_PORT)
+
+
+def get_scheduled_time(hour: int, minute: int) -> datetime.datetime:
+    now = datetime.datetime.now(TZ)
+    scheduled = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if now >= scheduled:
+        scheduled += datetime.timedelta(days=1)
+    return scheduled
+
+
+def is_admin(user_id: int) -> bool:
+    return not ADMIN_USER_IDS or user_id in ADMIN_USER_IDS
+
+
+async def upsert_week_control_message(bot, force_new: bool = False) -> None:
+    await week_control.upsert_week_control_message(bot, force_new=force_new)
+
+
+async def create_poll(context: ContextTypes.DEFAULT_TYPE) -> None:
+    now = datetime.datetime.now(TZ)
+    if now.weekday() != 3:
         return
-
-    message: list[str] = []
-
-    by_game = defaultdict(list)
-    for f in new_frags:
-        by_game[f.mission].append(f)
-
-    for mission, frags in by_game.items():
-        message.append(f'Игра {mission}:')
-        for f in frags:
-            message.append(' ' + str(f))
-        message.append('')
-        message.append('')
-
-    m = '\n'.join(message)
-    await context.bot.send_message(CHAT_ID, m)
-    response = (await chat.send_message('Вот фраги с последней игры, прокомментируй. Если там больше 4 - будь позитивен пожалуйста, это хороший результат:' + m)).text
-    await context.bot.send_message(CHAT_ID, response)
-
-
-async def _create_poll(context: ContextTypes) -> None:
     message = await context.bot.send_poll(
         CHAT_ID,
         "Играю...",
         ["Пт1", "Пт2", "Пт не играю", "Сб1", "Сб2", "Сб не играю"],
         allows_multiple_answers=True,
         is_anonymous=False,
-        message_thread_id=54606
+        message_thread_id=THREAD_ID,
     )
     await message.pin()
 
@@ -86,66 +103,160 @@ async def _create_poll(context: ContextTypes) -> None:
         ["Пт1", "Пт2", "Сб1", "Сб2", "Буду пьян, кто КОшит то"],
         allows_multiple_answers=True,
         is_anonymous=False,
-        message_thread_id=54606
+        message_thread_id=THREAD_ID,
     )
     await message.pin()
 
 
-import os
-from google import genai
-
-client = genai.Client(api_key=AI_KEY)
-
-# Create the model
-generation_config = {
-  "temperature": 1,
-  "top_p": 0.95,
-  "top_k": 40,
-  "max_output_tokens": 8192,
-  "response_mime_type": "text/plain",
-  "system_instruction": "Reply in Russian with sarcastic tone. You are replyingin the in-game squad channel or Arma3. Joke something about the players not being able to kill somebody or that you will never stop defending the trigger(main base). Be playful. Make jokes about the players, be extremely sarcastic, but add a little of cheering up now and then",
-}
-
-# model = genai.GenerativeModel(
-#   model_name="gemini-2.0-flash",
-#   generation_config=generation_config,
-#   system_instruction=
-# )
-chat = client.aio.chats.create(model='gemini-2.0-flash-001', config=generation_config)
+async def init_week_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    now = datetime.datetime.now(TZ)
+    if now.weekday() != 0:
+        return
+    await upsert_week_control_message(context.bot)
 
 
-async def any_message(update: Update, context: ContextTypes) -> None:
+async def refresh_week_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        await upsert_week_control_message(context.bot)
+    except Exception as exc:
+        logger.warning("Week refresh failed: %s", exc)
+
+
+async def report_frags(context: ContextTypes.DEFAULT_TYPE) -> None:
+    now = datetime.datetime.now(TZ)
+    if 21 <= now.hour <= 23:
+        return
+    new_frags, _parsed_games = replays.collect_new_frags()
+    new_frags = [f for f in new_frags if ("[DER]" in f.killer or "[DER_c]" in f.killer)]
+    if not new_frags:
+        return
+
+    message_lines: list[str] = []
+    by_game = defaultdict(list)
+    for frag in new_frags:
+        by_game[frag.mission].append(frag)
+
+    for mission, frags in by_game.items():
+        message_lines.append(f"Игра {mission}:")
+        for frag in frags:
+            message_lines.append(" " + str(frag))
+        message_lines.extend(["", ""])
+
+    payload = "\n".join(message_lines)
+    await context.bot.send_message(CHAT_ID, payload)
+    if chat is not None:
+        try:
+            response = (
+                await chat.send_message(
+                    "Вот фраги с последней игры, прокомментируй. Если там больше 4 - будь позитивен пожалуйста, это хороший результат:" + payload
+                )
+            ).text
+            await context.bot.send_message(CHAT_ID, response)
+        except Exception as exc:
+            logger.warning("AI commentary failed: %s", exc)
+
+
+async def command_app(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message is None:
         return
-    CHAT_ID = update.message.chat.id
-    if 'der_ai_bot' in update.message.text.lower():
-        if update.message.text.lower().endswith('реплей'):
-            await report_frags(context)
+    if not WEBAPP_URL:
+        await update.message.reply_text("WEBAPP_URL not set")
+        return
+    await update.message.reply_text(
+        "Open slots app",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Open app", url=WEBAPP_URL)]]),
+    )
+
+
+async def command_week_init(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or not is_admin(update.effective_user.id):
+        await update.effective_message.reply_text("Admin only")
+        return
+    await upsert_week_control_message(context.bot)
+    await update.effective_message.reply_text("Week ready")
+
+
+async def command_week_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None or not is_admin(update.effective_user.id):
+        await update.effective_message.reply_text("Admin only")
+        return
+    await upsert_week_control_message(context.bot, force_new=True)
+    await update.effective_message.reply_text("Week rebuilt")
+
+
+async def command_slots(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    week = slots_service.create_or_get_active_week()
+    await update.effective_message.reply_text(week_control.build_week_text(week))
+
+
+async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None:
+        return
+    await query.answer()
+    data = query.data or ""
+    try:
+        if data == "week:refresh":
+            await upsert_week_control_message(context.bot)
+            await query.answer("Refreshed")
             return
-        response = (await chat.send_message(update.message.text.lower())).text
-        
-        # response = random.choice([
-        #     'Работаю во благо ДЭРов...',
-        #     'Всегда на службе',
-        #     'Нужно больше золота',
-        #     'Жизнь за Нерзулла',
-        #     'Как скажешь друг',
-        #     'Согласен',
-        #     'Воистину',
-        #     'DER-DER-DER!',
-        # ])
-        await context.bot.send_message(CHAT_ID, response)
-    else:
-        pass
+        if data == "week:reset":
+            if update.effective_user is None or not is_admin(update.effective_user.id):
+                await query.answer("Admin only", show_alert=True)
+                return
+            await upsert_week_control_message(context.bot, force_new=True)
+            await query.answer("Week rebuilt")
+            return
+        if data.startswith("slot:"):
+            slot_code = data.split(":", 1)[1]
+            slot = slots_service.get_slot(slot_code)
+            await context.bot.send_message(
+                CHAT_ID,
+                week_control.build_slot_text(slot),
+                message_thread_id=THREAD_ID,
+            )
+            return
+    except NotFoundError as exc:
+        await query.answer(str(exc), show_alert=True)
+    except Exception as exc:
+        logger.exception("Callback failed")
+        await query.answer(str(exc), show_alert=True)
 
 
-def main():
+async def any_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None or update.message.text is None:
+        return
+    if "der_ai_bot" not in update.message.text.lower():
+        return
+    if update.message.text.lower().endswith("реплей"):
+        await report_frags(context)
+        return
+    if chat is None:
+        await context.bot.send_message(update.message.chat.id, "AI disabled")
+        return
+    response = (await chat.send_message(update.message.text.lower())).text
+    await context.bot.send_message(update.message.chat.id, response)
+
+
+def main() -> None:
+    init_db()
+    slots_service.create_or_get_active_week()
+    start_web_server()
+
     application = Application.builder().token(TOKEN).build()
-    application.add_handler(MessageHandler(None, any_message))
-    application.job_queue.run_repeating(create_poll, interval=60*60*24, first=scheduled_time)
-    application.job_queue.run_repeating(report_frags, interval=60*60*1, first=now + datetime.timedelta(seconds=5))
+    application.add_handler(CommandHandler("app", command_app))
+    application.add_handler(CommandHandler("week_init", command_week_init))
+    application.add_handler(CommandHandler("week_reset", command_week_reset))
+    application.add_handler(CommandHandler("slots", command_slots))
+    application.add_handler(CallbackQueryHandler(handle_button))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, any_message))
+
+    application.job_queue.run_repeating(create_poll, interval=60 * 60 * 24, first=get_scheduled_time(9, 0))
+    application.job_queue.run_repeating(init_week_job, interval=60 * 60 * 24, first=get_scheduled_time(9, 5))
+    application.job_queue.run_repeating(refresh_week_job, interval=60 * 5, first=10)
+    application.job_queue.run_repeating(report_frags, interval=60 * 60, first=5)
     application.run_polling()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

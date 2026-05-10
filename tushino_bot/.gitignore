@@ -1,0 +1,7 @@
+env/
+__pycache__/
+*.pyc
+bot.sqlite3
+bot.sqlite3-shm
+bot.sqlite3-wal
+logs.log

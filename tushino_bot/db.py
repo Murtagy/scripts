@@ -1,0 +1,93 @@
+import os
+import sqlite3
+from contextlib import contextmanager
+
+DB_PATH = os.environ.get("BOT_DB_PATH", "bot.sqlite3")
+
+
+def init_db() -> None:
+    with get_conn() as conn:
+        conn.executescript(
+            """
+            PRAGMA journal_mode=WAL;
+
+            CREATE TABLE IF NOT EXISTS weeks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                week_key TEXT NOT NULL UNIQUE,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS slots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                week_id INTEGER NOT NULL,
+                code TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(week_id, code),
+                FOREIGN KEY(week_id) REFERENCES weeks(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slot_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                created_by_user_id INTEGER,
+                created_by_username TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(slot_id) REFERENCES slots(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS item_competitions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id INTEGER NOT NULL,
+                round_no INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                tiebreak_user_ids TEXT,
+                winner_user_id INTEGER,
+                winner_username TEXT,
+                called_by_user_id INTEGER,
+                called_by_username TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                called_at TEXT,
+                UNIQUE(item_id, round_no),
+                FOREIGN KEY(item_id) REFERENCES items(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS rolls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                competition_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                username TEXT,
+                display_name TEXT NOT NULL,
+                value INTEGER NOT NULL,
+                tiebreak_round_no INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(competition_id, user_id, tiebreak_round_no),
+                FOREIGN KEY(competition_id) REFERENCES item_competitions(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS bot_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                week_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                chat_id TEXT NOT NULL,
+                thread_id INTEGER,
+                message_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(week_id, kind),
+                FOREIGN KEY(week_id) REFERENCES weeks(id)
+            );
+            """
+        )
+        conn.commit()
+
+
+@contextmanager
+def get_conn():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
