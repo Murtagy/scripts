@@ -24,14 +24,19 @@ def build_week_text(week: dict) -> str:
             continue
         parts = []
         for item in slot["items"]:
+            latest_roll = item.get("latest_roll")
+            latest_suffix = ""
+            if latest_roll:
+                latest_name = latest_roll["display_name"] or latest_roll["username"]
+                latest_suffix = f" [{latest_name} {latest_roll['value']}]"
             if item["status"] == "called" and item["scores"]:
                 top = item["scores"][0]
                 winner = top["display_name"] or top["username"]
-                parts.append(f"{item['name']}={winner} {top['best_value']}✅")
+                parts.append(f"{item['name']}={winner} {top['best_value']}✅{latest_suffix}")
             elif item["status"] == "tiebreak":
-                parts.append(f"{item['name']}=переброс")
+                parts.append(f"{item['name']}=переброс{latest_suffix}")
             else:
-                parts.append(f"{item['name']}={len(item['scores'])}🎲")
+                parts.append(f"{item['name']}={len(item['scores'])}🎲{latest_suffix}")
         lines.append(f"{slot['code']}: " + "; ".join(parts))
     return "\n".join(lines).strip()
 

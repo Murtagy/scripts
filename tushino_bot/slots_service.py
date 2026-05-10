@@ -411,6 +411,7 @@ def _build_item_payload(conn, item) -> dict[str, Any]:
     ).fetchall()
     current = competitions[0] if competitions else None
     score_rows = []
+    latest_roll = None
     if current is not None:
         score_rows = conn.execute(
             """
@@ -424,6 +425,16 @@ def _build_item_payload(conn, item) -> dict[str, Any]:
             """,
             (current["id"],),
         ).fetchall()
+        latest_roll = conn.execute(
+            """
+            SELECT user_id, username, display_name, value, tiebreak_round_no
+            FROM rolls
+            WHERE competition_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (current["id"],),
+        ).fetchone()
 
     has_tiebreak_scores = any(row["tiebreak_value"] is not None for row in score_rows)
     sorted_scores = sorted(
@@ -467,4 +478,11 @@ def _build_item_payload(conn, item) -> dict[str, Any]:
             }
             for row in sorted_scores
         ],
+        "latest_roll": {
+            "user_id": latest_roll["user_id"],
+            "username": latest_roll["username"],
+            "display_name": latest_roll["display_name"],
+            "value": latest_roll["value"],
+            "tiebreak_round_no": latest_roll["tiebreak_round_no"],
+        } if latest_roll else None,
     }
