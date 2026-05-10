@@ -235,9 +235,6 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 "display_name": await resolve_display_name(context.bot, update.effective_user),
             }
             item = slots_service.roll_for_item(item_id, user)
-            week = slots_service.get_active_week()
-            slot = next(s for s in week["slots"] if s["code"] == item["slot_code"])
-            await week_control.upsert_slot_message(context.bot, week, slot)
             await week_control.upsert_week_control_message(context.bot)
             await query.answer(f"Бросок: {item['last_roll']['value']}", show_alert=False)
             return
@@ -249,9 +246,6 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 "display_name": await resolve_display_name(context.bot, update.effective_user),
             }
             item = slots_service.call_item(item_id, user)
-            week = slots_service.get_active_week()
-            slot = next(s for s in week["slots"] if s["code"] == item["slot_code"])
-            await week_control.upsert_slot_message(context.bot, week, slot)
             await week_control.upsert_week_control_message(context.bot)
             if item["call_result"] == "tiebreak":
                 await query.answer("Ничья. Нужен переброс.", show_alert=False)

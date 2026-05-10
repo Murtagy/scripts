@@ -36,10 +36,19 @@ def build_week_text(week: dict) -> str:
     return "\n".join(lines).strip()
 
 
-def build_week_keyboard() -> InlineKeyboardMarkup:
+def build_week_keyboard(week: dict) -> InlineKeyboardMarkup:
     rows = []
     if BOT_USERNAME:
         rows.append([InlineKeyboardButton("Open bot", url=f"https://t.me/{BOT_USERNAME}")])
+    for slot in week["slots"]:
+        for item in slot["items"]:
+            label = f"{slot['code']}-{item['name']}"
+            if len(label) > 18:
+                label = label[:18]
+            rows.append([
+                InlineKeyboardButton(f"🎲 {label}", callback_data=f"item:roll:{item['id']}"),
+                InlineKeyboardButton(f"🏁 {label}", callback_data=f"item:call:{item['id']}"),
+            ])
     rows.append([InlineKeyboardButton("Refresh", callback_data="week:refresh")])
     rows.append([InlineKeyboardButton("Rebuild", callback_data="week:reset")])
     return InlineKeyboardMarkup(rows)
@@ -63,30 +72,17 @@ def build_slot_text(slot: dict) -> str:
         for idx, score in enumerate(item["scores"][:3], start=1):
             name = item_display_name(score)
             suffix = "✅" if item["status"] == "called" and idx == 1 else ""
-            tb = f"/{score['tiebreak_value']}" if score["tiebreak_value"] is not None else ""
+            tb = f"/{score['tiebreak_value']}" if score['tiebreak_value'] is not None else ""
             lines.append(f"  {idx}) {name} {score['best_value']}{tb}{suffix}")
         if len(item["scores"]) > 3:
             lines.append(f"  … еще {len(item['scores']) - 3}")
     return "\n".join(lines).strip()
 
 
-def build_slot_keyboard(slot: dict) -> InlineKeyboardMarkup:
-    rows = []
-    for item in slot["items"]:
-        label = item["name"]
-        if len(label) > 18:
-            label = label[:15] + "..."
-        rows.append([
-            InlineKeyboardButton(f"🎲 {label}", callback_data=f"item:roll:{item['id']}"),
-            InlineKeyboardButton(f"🏁 {label}", callback_data=f"item:call:{item['id']}"),
-        ])
-    return InlineKeyboardMarkup(rows)
-
-
 async def upsert_week_control_message(bot: Bot, force_new: bool = False) -> None:
     week = slots_service.reset_active_week() if force_new else slots_service.create_or_get_active_week()
     text = build_week_text(week)
-    keyboard = build_week_keyboard()
+    keyboard = build_week_keyboard(week)
     existing = slots_service.get_control_message(week["id"])
     if existing:
         try:
@@ -114,36 +110,6 @@ async def upsert_week_control_message(bot: Bot, force_new: bool = False) -> None
         )
         slots_service.save_control_message(week["id"], str(CHAT_ID), THREAD_ID, message.message_id)
 
-    for slot in week["slots"]:
-        await upsert_slot_message(bot, week, slot)
-
-
-async def upsert_slot_message(bot: Bot, week: dict, slot: dict) -> None:
-    text = build_slot_text(slot)
-    keyboard = build_slot_keyboard(slot)
-    kind = f"slot:{slot['code']}"
-    existing = slots_service.get_bot_message(week["id"], kind)
-    if existing:
-        try:
-            await bot.edit_message_text(
-                chat_id=existing["chat_id"],
-                message_id=existing["message_id"],
-                text=text,
-                reply_markup=keyboard,
-            )
-            return
-        except Exception as exc:
-            if "message is not modified" in str(exc).lower():
-                return
-    if not CHAT_ID:
-        return
-    message = await bot.send_message(
-        CHAT_ID,
-        text,
-        reply_markup=keyboard,
-        message_thread_id=THREAD_ID,
-    )
-    slots_service.save_bot_message(week["id"], kind, str(CHAT_ID), THREAD_ID, message.message_id)
 
 
 def refresh_week_control_sync(force_new: bool = False) -> None:
