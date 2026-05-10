@@ -17,23 +17,22 @@ def item_display_name(score: dict) -> str:
 
 
 def build_week_text(week: dict) -> str:
-    lines = [f"Неделя {week['week_key']}", ""]
+    lines = [f"Неделя {week['week_key']}"]
     for slot in week["slots"]:
-        lines.append(f"{slot['code']}")
         if not slot["items"]:
-            lines.append("  — пусто")
+            lines.append(f"{slot['code']}: пусто")
+            continue
+        parts = []
         for item in slot["items"]:
-            status = item["status"]
-            if status == "called" and item["scores"]:
+            if item["status"] == "called" and item["scores"]:
                 top = item["scores"][0]
                 winner = top["display_name"] or top["username"]
-                lines.append(f"  — {item['name']}: {winner} {top['best_value']} ✅")
-            elif status == "tiebreak":
-                lines.append(f"  — {item['name']}: тайбрейк, роллов {len(item['scores'])}")
+                parts.append(f"{item['name']}={winner} {top['best_value']}✅")
+            elif item["status"] == "tiebreak":
+                parts.append(f"{item['name']}=переброс")
             else:
-                lines.append(f"  — {item['name']}: open, роллов {len(item['scores'])}")
-        lines.append("")
-    lines.append("Ролл: 1..6. Один ролл на игрока для каждого айтема.")
+                parts.append(f"{item['name']}={len(item['scores'])}🎲")
+        lines.append(f"{slot['code']}: " + "; ".join(parts))
     return "\n".join(lines).strip()
 
 
@@ -47,23 +46,27 @@ def build_week_keyboard() -> InlineKeyboardMarkup:
 
 
 def build_slot_text(slot: dict) -> str:
-    lines = [f"Слот {slot['code']}", ""]
+    lines = [slot['code']]
     if not slot["items"]:
-        lines.append("Пока пусто")
+        return f"{slot['code']}: пусто"
     for item in slot["items"]:
-        lines.append(f"• {item['name']} [{item['status']}]")
-        if item["scores"]:
-            for idx, score in enumerate(item["scores"], start=1):
-                name = item_display_name(score)
-                suffix = " ✅" if item["status"] == "called" and idx == 1 else ""
-                tb = f" (переброс {score['tiebreak_value']})" if score["tiebreak_value"] is not None else ""
-                lines.append(f"  {idx}. {name} — {score['best_value']}{tb}{suffix}")
-        else:
-            lines.append("  Пока бросков нет")
         if item["status"] == "tiebreak" and item["tied_display_names"]:
-            lines.append("  Переброс: " + ", ".join(item["tied_display_names"]))
-        lines.append("")
-    lines.append("Нажми кнопку айтема: 🎲 бросок, 🏁 итог.")
+            status = "переброс: " + ", ".join(item["tied_display_names"])
+        elif item["status"] == "called" and item["scores"]:
+            top = item["scores"][0]
+            status = f"победил {item_display_name(top)} {top['best_value']}✅"
+        elif item["scores"]:
+            status = f"{len(item['scores'])} брос."
+        else:
+            status = "без бросков"
+        lines.append(f"• {item['name']} — {status}")
+        for idx, score in enumerate(item["scores"][:3], start=1):
+            name = item_display_name(score)
+            suffix = "✅" if item["status"] == "called" and idx == 1 else ""
+            tb = f"/{score['tiebreak_value']}" if score["tiebreak_value"] is not None else ""
+            lines.append(f"  {idx}) {name} {score['best_value']}{tb}{suffix}")
+        if len(item["scores"]) > 3:
+            lines.append(f"  … еще {len(item['scores']) - 3}")
     return "\n".join(lines).strip()
 
 
