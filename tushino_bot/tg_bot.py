@@ -215,14 +215,6 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await upsert_week_control_message(context.bot, force_new=True)
             await query.answer("Week rebuilt")
             return
-        if data.startswith("slot:refresh:"):
-            slot_code = data.split(":", 2)[2]
-            week = slots_service.get_active_week()
-            slot = next(s for s in week["slots"] if s["code"] == slot_code)
-            await week_control.upsert_slot_message(context.bot, week, slot)
-            await week_control.upsert_week_control_message(context.bot)
-            await query.answer("Обновил")
-            return
         if data.startswith("item:roll:"):
             item_id = int(data.split(":", 2)[2])
             user = {
@@ -254,11 +246,6 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             else:
                 winner = item["scores"][0]["display_name"] or item["scores"][0]["username"]
                 await query.answer(f"Победил {winner}", show_alert=False)
-            return
-        if data.startswith("slot:"):
-            slot_code = data.split(":", 1)[1]
-            slot = slots_service.get_slot(slot_code)
-            await query.answer(week_control.build_slot_text(slot)[:180], show_alert=True)
             return
     except NotFoundError as exc:
         await query.answer(str(exc), show_alert=True)

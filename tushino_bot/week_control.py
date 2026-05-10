@@ -41,16 +41,8 @@ def build_week_keyboard() -> InlineKeyboardMarkup:
     rows = []
     if BOT_USERNAME:
         rows.append([InlineKeyboardButton("Open bot", url=f"https://t.me/{BOT_USERNAME}")])
-    rows.append([
-        InlineKeyboardButton("пт1", callback_data="slot:пт1"),
-        InlineKeyboardButton("пт2", callback_data="slot:пт2"),
-        InlineKeyboardButton("сб1", callback_data="slot:сб1"),
-        InlineKeyboardButton("сб2", callback_data="slot:сб2"),
-    ])
-    rows.append([
-        InlineKeyboardButton("Refresh", callback_data="week:refresh"),
-        InlineKeyboardButton("Rebuild", callback_data="week:reset"),
-    ])
+    rows.append([InlineKeyboardButton("Refresh", callback_data="week:refresh")])
+    rows.append([InlineKeyboardButton("Rebuild", callback_data="week:reset")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -85,7 +77,6 @@ def build_slot_keyboard(slot: dict) -> InlineKeyboardMarkup:
             InlineKeyboardButton(f"🎲 {label}", callback_data=f"item:roll:{item['id']}"),
             InlineKeyboardButton(f"🏁 {label}", callback_data=f"item:call:{item['id']}"),
         ])
-    rows.append([InlineKeyboardButton("🔄 Обновить", callback_data=f"slot:refresh:{slot['code']}")])
     return InlineKeyboardMarkup(rows)
 
 
