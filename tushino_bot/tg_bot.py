@@ -238,21 +238,6 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await week_control.upsert_week_control_message(context.bot)
             await query.answer(f"Бросок: {item['last_roll']['value']}", show_alert=False)
             return
-        if data.startswith("item:call:"):
-            item_id = int(data.split(":", 2)[2])
-            user = {
-                "user_id": update.effective_user.id,
-                "username": f"@{update.effective_user.username}" if update.effective_user.username else None,
-                "display_name": await resolve_display_name(context.bot, update.effective_user),
-            }
-            item = slots_service.call_item(item_id, user)
-            await week_control.upsert_week_control_message(context.bot)
-            if item["call_result"] == "tiebreak":
-                await query.answer("Ничья. Нужен переброс.", show_alert=False)
-            else:
-                winner = item["scores"][0]["display_name"] or item["scores"][0]["username"]
-                await query.answer(f"Победил {winner}", show_alert=False)
-            return
     except NotFoundError as exc:
         await query.answer(str(exc), show_alert=True)
     except Exception as exc:

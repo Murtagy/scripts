@@ -43,11 +43,10 @@ def build_week_keyboard(week: dict) -> InlineKeyboardMarkup:
     for slot in week["slots"]:
         for item in slot["items"]:
             label = f"{slot['code']}-{item['name']}"
-            if len(label) > 18:
-                label = label[:18]
+            if len(label) > 24:
+                label = label[:24]
             rows.append([
                 InlineKeyboardButton(f"🎲 {label}", callback_data=f"item:roll:{item['id']}"),
-                InlineKeyboardButton(f"🏁 {label}", callback_data=f"item:call:{item['id']}"),
             ])
     rows.append([InlineKeyboardButton("Refresh", callback_data="week:refresh")])
     rows.append([InlineKeyboardButton("Rebuild", callback_data="week:reset")])
