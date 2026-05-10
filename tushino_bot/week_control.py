@@ -48,8 +48,6 @@ def build_week_keyboard(week: dict) -> InlineKeyboardMarkup:
             rows.append([
                 InlineKeyboardButton(f"🎲 {label}", callback_data=f"item:roll:{item['id']}"),
             ])
-    rows.append([InlineKeyboardButton("Refresh", callback_data="week:refresh")])
-    rows.append([InlineKeyboardButton("Rebuild", callback_data="week:reset")])
     return InlineKeyboardMarkup(rows)
 
 
