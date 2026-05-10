@@ -1,7 +1,7 @@
 import asyncio
 import os
 
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 import slots_service
 
@@ -35,7 +35,7 @@ def build_week_text(week: dict) -> str:
 def build_week_keyboard() -> InlineKeyboardMarkup:
     rows = []
     if WEBAPP_URL:
-        rows.append([InlineKeyboardButton("Open app", url=WEBAPP_URL)])
+        rows.append([InlineKeyboardButton("Open app", web_app=WebAppInfo(url=WEBAPP_URL))])
     rows.append([
         InlineKeyboardButton("пт1", callback_data="slot:пт1"),
         InlineKeyboardButton("пт2", callback_data="slot:пт2"),

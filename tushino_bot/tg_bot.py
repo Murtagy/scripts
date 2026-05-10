@@ -6,7 +6,7 @@ from collections import defaultdict
 
 import pytz
 import uvicorn
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -164,7 +164,7 @@ async def command_app(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     await update.message.reply_text(
         "Open slots app",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Open app", url=WEBAPP_URL)]]),
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Open app", web_app=WebAppInfo(url=WEBAPP_URL))]]),
     )
 
 
