@@ -12,6 +12,10 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "")
 
 
+def item_display_name(score: dict) -> str:
+    return score["display_name"] or score["username"] or str(score["user_id"])
+
+
 def build_week_text(week: dict) -> str:
     lines = [f"Неделя {week['week_key']}", ""]
     for slot in week["slots"]:
@@ -29,7 +33,7 @@ def build_week_text(week: dict) -> str:
             else:
                 lines.append(f"  — {item['name']}: open, роллов {len(item['scores'])}")
         lines.append("")
-    lines.append("Ролл: 1..100. Один ролл на игрока для каждого айтема.")
+    lines.append("Ролл: 1..6. Один ролл на игрока для каждого айтема.")
     return "\n".join(lines).strip()
 
 
@@ -55,19 +59,34 @@ def build_slot_text(slot: dict) -> str:
     if not slot["items"]:
         lines.append("Пока пусто")
     for item in slot["items"]:
-        lines.append(f"• {item['name']} [{item['status']}] round {item['round_no']}")
+        lines.append(f"• {item['name']} [{item['status']}]")
         if item["scores"]:
             for idx, score in enumerate(item["scores"], start=1):
-                name = score["display_name"] or score["username"]
+                name = item_display_name(score)
                 suffix = " ✅" if item["status"] == "called" and idx == 1 else ""
-                tb = f" (tb {score['tiebreak_value']})" if score["tiebreak_value"] is not None else ""
+                tb = f" (переброс {score['tiebreak_value']})" if score["tiebreak_value"] is not None else ""
                 lines.append(f"  {idx}. {name} — {score['best_value']}{tb}{suffix}")
         else:
-            lines.append("  no rolls yet")
+            lines.append("  Пока бросков нет")
         if item["status"] == "tiebreak" and item["tied_display_names"]:
-            lines.append("  тайбрейк: " + ", ".join(item["tied_display_names"]))
+            lines.append("  Переброс: " + ", ".join(item["tied_display_names"]))
         lines.append("")
+    lines.append("Нажми кнопку айтема: 🎲 бросок, 🏁 итог.")
     return "\n".join(lines).strip()
+
+
+def build_slot_keyboard(slot: dict) -> InlineKeyboardMarkup:
+    rows = []
+    for item in slot["items"]:
+        label = item["name"]
+        if len(label) > 18:
+            label = label[:15] + "..."
+        rows.append([
+            InlineKeyboardButton(f"🎲 {label}", callback_data=f"item:roll:{item['id']}"),
+            InlineKeyboardButton(f"🏁 {label}", callback_data=f"item:call:{item['id']}"),
+        ])
+    rows.append([InlineKeyboardButton("🔄 Обновить", callback_data=f"slot:refresh:{slot['code']}")])
+    return InlineKeyboardMarkup(rows)
 
 
 async def upsert_week_control_message(bot: Bot, force_new: bool = False) -> None:
@@ -75,6 +94,41 @@ async def upsert_week_control_message(bot: Bot, force_new: bool = False) -> None
     text = build_week_text(week)
     keyboard = build_week_keyboard()
     existing = slots_service.get_control_message(week["id"])
+    if existing:
+        try:
+            await bot.edit_message_text(
+                chat_id=existing["chat_id"],
+                message_id=existing["message_id"],
+                text=text,
+                reply_markup=keyboard,
+            )
+        except Exception as exc:
+            if "message is not modified" not in str(exc).lower() and CHAT_ID:
+                message = await bot.send_message(
+                    CHAT_ID,
+                    text,
+                    reply_markup=keyboard,
+                    message_thread_id=THREAD_ID,
+                )
+                slots_service.save_control_message(week["id"], str(CHAT_ID), THREAD_ID, message.message_id)
+    elif CHAT_ID:
+        message = await bot.send_message(
+            CHAT_ID,
+            text,
+            reply_markup=keyboard,
+            message_thread_id=THREAD_ID,
+        )
+        slots_service.save_control_message(week["id"], str(CHAT_ID), THREAD_ID, message.message_id)
+
+    for slot in week["slots"]:
+        await upsert_slot_message(bot, week, slot)
+
+
+async def upsert_slot_message(bot: Bot, week: dict, slot: dict) -> None:
+    text = build_slot_text(slot)
+    keyboard = build_slot_keyboard(slot)
+    kind = f"slot:{slot['code']}"
+    existing = slots_service.get_bot_message(week["id"], kind)
     if existing:
         try:
             await bot.edit_message_text(
@@ -95,7 +149,7 @@ async def upsert_week_control_message(bot: Bot, force_new: bool = False) -> None
         reply_markup=keyboard,
         message_thread_id=THREAD_ID,
     )
-    slots_service.save_control_message(week["id"], str(CHAT_ID), THREAD_ID, message.message_id)
+    slots_service.save_bot_message(week["id"], kind, str(CHAT_ID), THREAD_ID, message.message_id)
 
 
 def refresh_week_control_sync(force_new: bool = False) -> None:

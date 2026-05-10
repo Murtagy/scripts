@@ -246,7 +246,7 @@ def roll_for_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
         if existing:
             raise ConflictError("User already rolled for this item")
 
-        value = random.randint(1, 100)
+        value = random.randint(1, 6)
         conn.execute(
             """
             INSERT INTO rolls (competition_id, user_id, username, display_name, value, tiebreak_round_no)
@@ -350,27 +350,35 @@ def reopen_item(item_id: int) -> dict[str, Any]:
         return _build_item_payload(conn, item)
 
 
-def save_control_message(week_id: int, chat_id: str, thread_id: int | None, message_id: int) -> None:
+def save_bot_message(week_id: int, kind: str, chat_id: str, thread_id: int | None, message_id: int) -> None:
     with get_conn() as conn:
         conn.execute(
             """
             INSERT INTO bot_messages (week_id, kind, chat_id, thread_id, message_id)
-            VALUES (?, 'week_control', ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(week_id, kind)
             DO UPDATE SET chat_id = excluded.chat_id, thread_id = excluded.thread_id, message_id = excluded.message_id
             """,
-            (week_id, str(chat_id), thread_id, message_id),
+            (week_id, kind, str(chat_id), thread_id, message_id),
         )
         conn.commit()
 
 
-def get_control_message(week_id: int) -> dict[str, Any] | None:
+def get_bot_message(week_id: int, kind: str) -> dict[str, Any] | None:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT * FROM bot_messages WHERE week_id = ? AND kind = 'week_control'",
-            (week_id,),
+            "SELECT * FROM bot_messages WHERE week_id = ? AND kind = ?",
+            (week_id, kind),
         ).fetchone()
         return _row_to_dict(row)
+
+
+def save_control_message(week_id: int, chat_id: str, thread_id: int | None, message_id: int) -> None:
+    save_bot_message(week_id, 'week_control', chat_id, thread_id, message_id)
+
+
+def get_control_message(week_id: int) -> dict[str, Any] | None:
+    return get_bot_message(week_id, 'week_control')
 
 
 def _build_week_payload(conn, week_id: int) -> dict[str, Any]:
