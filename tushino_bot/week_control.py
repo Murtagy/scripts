@@ -25,18 +25,22 @@ def build_week_text(week: dict) -> str:
         parts = []
         for item in slot["items"]:
             latest_roll = item.get("latest_roll")
-            latest_suffix = ""
-            if latest_roll:
-                latest_name = latest_roll["display_name"] or latest_roll["username"]
-                latest_suffix = f" [{latest_name} {latest_roll['value']}]"
+            best_suffix = ""
+            if item["scores"]:
+                top = item["scores"][0]
+                top_name = top["display_name"] or top["username"]
+                best_suffix = f" [{top_name} {top['best_value']}]"
             if item["status"] == "called" and item["scores"]:
                 top = item["scores"][0]
                 winner = top["display_name"] or top["username"]
-                parts.append(f"{item['name']}={winner} {top['best_value']}✅{latest_suffix}")
+                parts.append(f"{item['name']}={winner}✅{best_suffix}")
             elif item["status"] == "tiebreak":
-                parts.append(f"{item['name']}=переброс{latest_suffix}")
+                parts.append(f"{item['name']}=переброс{best_suffix}")
             else:
-                parts.append(f"{item['name']}={len(item['scores'])}🎲{latest_suffix}")
+                parts.append(f"{item['name']}={len(item['scores'])}🎲{best_suffix}")
+            if latest_roll:
+                latest_name = latest_roll["display_name"] or latest_roll["username"]
+                parts.append(f"↳ {latest_name} {latest_roll['value']}")
         lines.append(f"{slot['code']}: " + "; ".join(parts))
     return "\n".join(lines).strip()
 
