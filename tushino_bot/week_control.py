@@ -1,7 +1,7 @@
 import asyncio
 import os
 
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 import slots_service
 
@@ -9,6 +9,7 @@ CHAT_ID = os.environ.get("CHAT_ID")
 THREAD_ID = int(os.environ.get("PLAYABLE_THREAD_ID", "54606"))
 WEBAPP_URL = os.environ.get("WEBAPP_URL", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+BOT_USERNAME = os.environ.get("BOT_USERNAME", "")
 
 
 def build_week_text(week: dict) -> str:
@@ -34,8 +35,8 @@ def build_week_text(week: dict) -> str:
 
 def build_week_keyboard() -> InlineKeyboardMarkup:
     rows = []
-    if WEBAPP_URL:
-        rows.append([InlineKeyboardButton("Open app", web_app=WebAppInfo(url=WEBAPP_URL))])
+    if BOT_USERNAME:
+        rows.append([InlineKeyboardButton("Open bot", url=f"https://t.me/{BOT_USERNAME}")])
     rows.append([
         InlineKeyboardButton("пт1", callback_data="slot:пт1"),
         InlineKeyboardButton("пт2", callback_data="slot:пт2"),

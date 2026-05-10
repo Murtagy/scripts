@@ -35,6 +35,7 @@ CHAT_ID = os.environ["CHAT_ID"]
 AI_KEY = os.environ.get("AI_KEY")
 THREAD_ID = int(os.environ.get("PLAYABLE_THREAD_ID", "54606"))
 WEBAPP_URL = os.environ.get("WEBAPP_URL", "")
+BOT_USERNAME = os.environ.get("BOT_USERNAME", "")
 WEBAPP_HOST = os.environ.get("WEBAPP_HOST", "127.0.0.1")
 WEBAPP_PORT = int(os.environ.get("WEBAPP_PORT", "8000"))
 ADMIN_USER_IDS = {
@@ -162,10 +163,17 @@ async def command_app(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not WEBAPP_URL:
         await update.message.reply_text("WEBAPP_URL not set")
         return
-    await update.message.reply_text(
-        "Open slots app",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Open app", web_app=WebAppInfo(url=WEBAPP_URL))]]),
-    )
+    if update.effective_chat and update.effective_chat.type == "private":
+        await update.message.reply_text(
+            "Open slots app",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Open app", web_app=WebAppInfo(url=WEBAPP_URL))]]),
+        )
+        return
+    username = BOT_USERNAME or (context.bot.username or "")
+    if username:
+        await update.message.reply_text(f"Open bot in PM: https://t.me/{username}")
+    else:
+        await update.message.reply_text("Open bot in private chat and run /app there")
 
 
 async def command_week_init(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
