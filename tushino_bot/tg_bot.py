@@ -274,6 +274,21 @@ async def command_app(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 def format_logs(lines: list[dict]) -> str:
     if not lines:
         return "Лог пуст"
+
+    action_map = {
+        "add_item": "создал слот",
+        "delete_item": "удалил слот",
+        "roll": "сделал бросок",
+        "undo_roll": "отменил бросок",
+        "call_tiebreak": "запустил переброс",
+        "call_winner": "подвел итог",
+        "reopen_item": "переоткрыл розыгрыш",
+        "week_init": "обновил неделю",
+        "week_reset": "пересоздал неделю",
+        "tunnel_restart": "перезапустил tunnel",
+        "warning_repeat_roll": "ВНИМАНИЕ! сделал повторный бросок",
+    }
+
     out = []
     for row in lines:
         who = row.get("display_name") or row.get("username") or "system"
@@ -282,10 +297,10 @@ def format_logs(lines: list[dict]) -> str:
             target += row["slot_code"]
         if row.get("item_name"):
             target += f"/{row['item_name']}"
-        if target:
-            target = f" {target}"
-        details = f" ({row['details']})" if row.get("details") else ""
-        out.append(f"{row['created_at']} — {who}: {row['action']}{target}{details}")
+        target = f" {target}" if target else ""
+        action_text = action_map.get(row["action"], row["action"])
+        details = f" ({row['details']})" if row.get("action") == "warning_repeat_roll" and row.get("details") else ""
+        out.append(f"{row['created_at']} — {who} {action_text}{target}{details}")
     return "\n".join(out)
 
 

@@ -60,6 +60,12 @@ def get_active_week(x_telegram_init_data: str | None = Header(default=None)):
     return slots_service.get_active_week()
 
 
+@app.get("/api/logs")
+def get_logs(limit: int = 50, x_telegram_init_data: str | None = Header(default=None)):
+    require_user(x_telegram_init_data)
+    return {"logs": slots_service.get_action_logs(max(1, min(limit, 200)))}
+
+
 @app.post("/api/week/init")
 def init_week(x_telegram_init_data: str | None = Header(default=None)):
     user = require_user(x_telegram_init_data)

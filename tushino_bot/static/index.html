@@ -42,6 +42,14 @@
       <div class="msg" id="msg"></div>
     </div>
 
+    <div class="card">
+      <div class="topbar">
+        <div><b>Журнал действий</b></div>
+        <button id="logsBtn" class="secondary">Обновить журнал</button>
+      </div>
+      <div id="logsView" class="muted" style="margin-top:10px">Загрузка...</div>
+    </div>
+
     <div id="slotView"></div>
   </div>
 
@@ -139,6 +147,35 @@ function itemCard(item) {
   `;
 }
 
+function formatLogLine(row) {
+  const who = escapeHtml(row.display_name || row.username || 'system');
+  const target = [row.slot_code, row.item_name].filter(Boolean).join('/');
+  const actionMap = {
+    add_item: 'создал слот',
+    delete_item: 'удалил слот',
+    roll: 'сделал бросок',
+    undo_roll: 'отменил бросок',
+    call_tiebreak: 'запустил переброс',
+    call_winner: 'подвел итог',
+    reopen_item: 'переоткрыл розыгрыш',
+    week_init: 'обновил неделю',
+    week_reset: 'пересоздал неделю',
+    tunnel_restart: 'перезапустил tunnel',
+    warning_repeat_roll: 'ВНИМАНИЕ! сделал повторный бросок',
+  };
+  const action = actionMap[row.action] || row.action;
+  return `${escapeHtml(row.created_at)} — ${who} ${escapeHtml(action)}${target ? ' ' + escapeHtml(target) : ''}`;
+}
+
+function renderLogs(logs) {
+  const view = document.getElementById('logsView');
+  if (!logs.length) {
+    view.innerHTML = 'Лог пуст';
+    return;
+  }
+  view.innerHTML = logs.map(x => `<div>${formatLogLine(x)}</div>`).join('');
+}
+
 function render() {
   document.getElementById('weekLabel').textContent = `Неделя ${state.week.week_key}`;
   renderTabs();
@@ -152,11 +189,16 @@ function render() {
 }
 
 async function reloadWeek() {
-  state.week = await api('/api/week/active');
+  const [week, logs] = await Promise.all([
+    api('/api/week/active'),
+    api('/api/logs?limit=30'),
+  ]);
+  state.week = week;
   if (!state.week.slots.find(x => x.code === state.activeSlot) && state.week.slots.length) {
     state.activeSlot = state.week.slots[0].code;
   }
   render();
+  renderLogs(logs.logs || []);
 }
 
 async function addItem() {
@@ -228,6 +270,7 @@ async function deleteItem(itemId) {
 }
 
 document.getElementById('refreshBtn').onclick = () => reloadWeek().catch(e => msg(e.message));
+document.getElementById('logsBtn').onclick = () => reloadWeek().catch(e => msg(e.message));
 document.getElementById('addBtn').onclick = () => addItem();
 document.getElementById('itemName').addEventListener('keydown', e => {
   if (e.key === 'Enter') addItem();

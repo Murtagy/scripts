@@ -69,6 +69,19 @@ def get_action_logs(limit: int = 20) -> list[dict[str, Any]]:
         return [_row_to_dict(row) for row in rows]
 
 
+def has_previous_base_roll(conn, week_id: int, user_id: int, item_id: int) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM action_logs
+        WHERE week_id = ? AND user_id = ? AND item_id = ? AND action = 'roll' AND details LIKE '%tiebreak_round_no=0%'
+        LIMIT 1
+        """,
+        (week_id, user_id, item_id),
+    ).fetchone()
+    return row is not None
+
+
 def create_or_get_active_week(target_week_key: str | None = None, force_new: bool = False) -> dict[str, Any]:
     target_week_key = target_week_key or week_key_for_date()
     with get_conn() as conn:
@@ -277,6 +290,8 @@ def roll_for_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
             """,
             (comp["id"], user["user_id"], tiebreak_round_no),
         ).fetchone()
+        if tiebreak_round_no == 0 and has_previous_base_roll(conn, item["week_id"], user["user_id"], item_id):
+            log_action("warning_repeat_roll", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details="Повторный обычный бросок после отмены")
         if existing:
             raise ConflictError("User already rolled for this item")
 
