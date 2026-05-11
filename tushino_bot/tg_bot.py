@@ -204,6 +204,24 @@ async def command_app(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text("Open bot in private chat and run /app there")
 
 
+def format_logs(lines: list[dict]) -> str:
+    if not lines:
+        return "Лог пуст"
+    out = []
+    for row in lines:
+        who = row.get("display_name") or row.get("username") or "system"
+        target = ""
+        if row.get("slot_code"):
+            target += row["slot_code"]
+        if row.get("item_name"):
+            target += f"/{row['item_name']}"
+        if target:
+            target = f" {target}"
+        details = f" ({row['details']})" if row.get("details") else ""
+        out.append(f"{row['created_at']} — {who}: {row['action']}{target}{details}")
+    return "\n".join(out)
+
+
 async def command_week_init(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user is None:
         return
@@ -215,7 +233,13 @@ async def command_week_init(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not is_admin(update.effective_user.id):
         await update.effective_message.reply_text("Admin only")
         return
+    user = {
+        "user_id": update.effective_user.id,
+        "username": f"@{update.effective_user.username}" if update.effective_user.username else None,
+        "display_name": await resolve_display_name(context.bot, update.effective_user),
+    }
     await upsert_week_control_message(context.bot)
+    slots_service.log_action("week_init", user=user)
     await update.effective_message.reply_text("Week ready")
 
 
@@ -230,7 +254,13 @@ async def command_week_reset(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not is_admin(update.effective_user.id):
         await update.effective_message.reply_text("Admin only")
         return
+    user = {
+        "user_id": update.effective_user.id,
+        "username": f"@{update.effective_user.username}" if update.effective_user.username else None,
+        "display_name": await resolve_display_name(context.bot, update.effective_user),
+    }
     await upsert_week_control_message(context.bot, force_new=True)
+    slots_service.log_action("week_reset", user=user)
     await update.effective_message.reply_text("Week rebuilt")
 
 
@@ -244,6 +274,41 @@ async def command_slots(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     week = slots_service.create_or_get_active_week()
     await update.effective_message.reply_text(week_control.build_week_text(week))
+
+
+async def command_undo_roll(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None:
+        return
+    try:
+        await ensure_chat_member(context.bot, update.effective_user.id)
+    except Exception:
+        await update.effective_message.reply_text("Only members of target chat can use this bot menu")
+        return
+    user = {
+        "user_id": update.effective_user.id,
+        "username": f"@{update.effective_user.username}" if update.effective_user.username else None,
+        "display_name": await resolve_display_name(context.bot, update.effective_user),
+    }
+    try:
+        item = slots_service.undo_last_roll(user)
+        await week_control.upsert_week_control_message(context.bot)
+        await update.effective_message.reply_text(f"Undo ok: {item['slot_code']}/{item['name']}")
+    except (NotFoundError, slots_service.ConflictError) as exc:
+        await update.effective_message.reply_text(str(exc))
+
+
+async def command_logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None:
+        return
+    try:
+        await ensure_chat_member(context.bot, update.effective_user.id)
+    except Exception:
+        await update.effective_message.reply_text("Only members of target chat can use this bot menu")
+        return
+    limit = 20
+    if context.args and context.args[0].isdigit():
+        limit = max(1, min(int(context.args[0]), 100))
+    await update.effective_message.reply_text(format_logs(slots_service.get_action_logs(limit)))
 
 
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -307,6 +372,8 @@ def main() -> None:
     application.add_handler(CommandHandler("week_init", command_week_init))
     application.add_handler(CommandHandler("week_reset", command_week_reset))
     application.add_handler(CommandHandler("slots", command_slots))
+    application.add_handler(CommandHandler("undo_roll", command_undo_roll))
+    application.add_handler(CommandHandler("logs", command_logs))
     application.add_handler(CallbackQueryHandler(handle_button))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, any_message))
 

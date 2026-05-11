@@ -38,6 +38,37 @@ def _row_to_dict(row) -> dict[str, Any]:
     return dict(row) if row is not None else None
 
 
+def log_action(action: str, user: dict[str, Any] | None = None, week_id: int | None = None, slot_code: str | None = None, item_id: int | None = None, item_name: str | None = None, details: str | None = None) -> None:
+    with get_conn() as conn:
+        if week_id is None:
+            week = conn.execute("SELECT * FROM weeks WHERE active = 1 ORDER BY id DESC LIMIT 1").fetchone()
+            week_id = week["id"] if week else None
+        conn.execute(
+            """
+            INSERT INTO action_logs (week_id, user_id, username, display_name, action, slot_code, item_id, item_name, details)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                week_id,
+                user.get("user_id") if user else None,
+                user.get("username") if user else None,
+                user.get("display_name") if user else None,
+                action,
+                slot_code,
+                item_id,
+                item_name,
+                details,
+            ),
+        )
+        conn.commit()
+
+
+def get_action_logs(limit: int = 20) -> list[dict[str, Any]]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM action_logs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [_row_to_dict(row) for row in rows]
+
+
 def create_or_get_active_week(target_week_key: str | None = None, force_new: bool = False) -> dict[str, Any]:
     target_week_key = target_week_key or week_key_for_date()
     with get_conn() as conn:
@@ -161,7 +192,9 @@ def add_item(slot_code: str, item_name: str, user: dict[str, Any]) -> dict[str, 
             (slot["id"], item_name, user.get("user_id"), user.get("username")),
         )
         conn.commit()
-        return get_item(cur.lastrowid)
+        result = get_item(cur.lastrowid)
+        log_action("add_item", user=user, week_id=slot["week_id"], slot_code=slot_code, item_id=result["id"], item_name=item_name)
+        return result
 
 
 def delete_item(item_id: int, user: dict[str, Any], admin_user_ids: set[int] | None = None) -> None:
@@ -173,6 +206,7 @@ def delete_item(item_id: int, user: dict[str, Any], admin_user_ids: set[int] | N
             raise PermissionError("Only creator or admin can delete item")
         conn.execute("UPDATE items SET active = 0 WHERE id = ?", (item_id,))
         conn.commit()
+        log_action("delete_item", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"])
 
 
 def get_item(item_id: int) -> dict[str, Any]:
@@ -184,7 +218,7 @@ def get_item(item_id: int) -> dict[str, Any]:
 def _get_item_row(conn, item_id: int):
     item = conn.execute(
         """
-        SELECT i.*, s.code AS slot_code
+        SELECT i.*, s.code AS slot_code, s.week_id AS week_id
         FROM items i
         JOIN slots s ON s.id = i.slot_id
         JOIN weeks w ON w.id = s.week_id
@@ -269,6 +303,7 @@ def roll_for_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
             "username": user.get("username"),
             "display_name": user.get("display_name"),
         }
+        log_action("roll", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details=f"value={value};tiebreak_round_no={tiebreak_round_no}")
         return payload
 
 
@@ -301,6 +336,7 @@ def call_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
             conn.commit()
             payload = _build_item_payload(conn, item)
             payload["call_result"] = "tiebreak"
+            log_action("call_tiebreak", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details=f"top_value={top_value}")
             payload["tied_users"] = [
                 {
                     "user_id": r["user_id"],
@@ -336,10 +372,11 @@ def call_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
         conn.commit()
         payload = _build_item_payload(conn, item)
         payload["call_result"] = "winner"
+        log_action("call_winner", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details=f"winner_user_id={winner['user_id']};value={winner['value']}")
         return payload
 
 
-def reopen_item(item_id: int) -> dict[str, Any]:
+def reopen_item(item_id: int, user: dict[str, Any] | None = None) -> dict[str, Any]:
     with get_conn() as conn:
         item = _get_item_row(conn, item_id)
         open_comp = _get_open_competition(conn, item_id)
@@ -347,7 +384,51 @@ def reopen_item(item_id: int) -> dict[str, Any]:
             raise ConflictError("Competition already open")
         _create_competition(conn, item_id)
         conn.commit()
-        return _build_item_payload(conn, item)
+        result = _build_item_payload(conn, item)
+        log_action("reopen_item", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"])
+        return result
+
+
+def undo_last_roll(user: dict[str, Any]) -> dict[str, Any]:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT r.*, c.status AS competition_status, c.item_id, i.name AS item_name, s.code AS slot_code, s.week_id
+            FROM rolls r
+            JOIN item_competitions c ON c.id = r.competition_id
+            JOIN items i ON i.id = c.item_id
+            JOIN slots s ON s.id = i.slot_id
+            JOIN weeks w ON w.id = s.week_id
+            WHERE w.active = 1 AND r.user_id = ? AND i.active = 1
+            ORDER BY r.created_at DESC, r.id DESC
+            LIMIT 1
+            """,
+            (user["user_id"],),
+        ).fetchone()
+        if row is None:
+            raise NotFoundError("No roll to undo")
+        if row["competition_status"] == "called":
+            raise ConflictError("Cannot undo roll after winner already called")
+
+        conn.execute("DELETE FROM rolls WHERE id = ?", (row["id"],))
+        conn.execute(
+            "UPDATE item_competitions SET status = 'open', tiebreak_user_ids = NULL WHERE id = ?",
+            (row["competition_id"],),
+        )
+        conn.commit()
+
+        item = _get_item_row(conn, row["item_id"])
+        payload = _build_item_payload(conn, item)
+        log_action(
+            "undo_roll",
+            user=user,
+            week_id=row["week_id"],
+            slot_code=row["slot_code"],
+            item_id=row["item_id"],
+            item_name=row["item_name"],
+            details=f"deleted_roll_id={row['id']};value={row['value']};tiebreak_round_no={row['tiebreak_round_no']}",
+        )
+        return payload
 
 
 def save_bot_message(week_id: int, kind: str, chat_id: str, thread_id: int | None, message_id: int) -> None:

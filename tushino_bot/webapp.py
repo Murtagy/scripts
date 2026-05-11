@@ -65,6 +65,7 @@ def init_week(x_telegram_init_data: str | None = Header(default=None)):
     user = require_user(x_telegram_init_data)
     require_admin(user)
     result = slots_service.create_or_get_active_week()
+    slots_service.log_action("week_init", user=user)
     week_control.refresh_week_control_sync()
     return result
 
@@ -74,6 +75,7 @@ def reset_week(x_telegram_init_data: str | None = Header(default=None)):
     user = require_user(x_telegram_init_data)
     require_admin(user)
     result = slots_service.reset_active_week()
+    slots_service.log_action("week_reset", user=user)
     week_control.refresh_week_control_sync()
     return result
 
@@ -126,7 +128,7 @@ def call_item(item_id: int, x_telegram_init_data: str | None = Header(default=No
 def reopen_item(item_id: int, x_telegram_init_data: str | None = Header(default=None)):
     user = require_user(x_telegram_init_data)
     require_admin(user)
-    result = slots_service.reopen_item(item_id)
+    result = slots_service.reopen_item(item_id, user=user)
     week_control.refresh_week_control_sync()
     return result
 

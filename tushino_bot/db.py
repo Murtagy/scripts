@@ -78,6 +78,21 @@ def init_db() -> None:
                 UNIQUE(week_id, kind),
                 FOREIGN KEY(week_id) REFERENCES weeks(id)
             );
+
+            CREATE TABLE IF NOT EXISTS action_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                week_id INTEGER,
+                user_id INTEGER,
+                username TEXT,
+                display_name TEXT,
+                action TEXT NOT NULL,
+                slot_code TEXT,
+                item_id INTEGER,
+                item_name TEXT,
+                details TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(week_id) REFERENCES weeks(id)
+            );
             """
         )
         conn.commit()
