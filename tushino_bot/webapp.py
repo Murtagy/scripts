@@ -180,11 +180,14 @@ def require_user(init_data: str | None) -> dict[str, Any]:
     if not init_data:
         raise HTTPException(status_code=401, detail="Telegram init data missing")
     user = validate_init_data(init_data, BOT_TOKEN)
-    ensure_chat_member(user["user_id"])
+    member = ensure_chat_member(user["user_id"])
+    custom_title = member.get("custom_title")
+    if custom_title:
+        user["display_name"] = custom_title
     return user
 
 
-def ensure_chat_member(user_id: int) -> None:
+def ensure_chat_member(user_id: int) -> dict[str, Any]:
     if not CHAT_ID:
         raise HTTPException(status_code=500, detail="CHAT_ID missing")
     r = requests.get(
@@ -195,9 +198,11 @@ def ensure_chat_member(user_id: int) -> None:
     data = r.json()
     if not data.get("ok"):
         raise HTTPException(status_code=403, detail="User not allowed")
-    status = data["result"].get("status")
+    result = data["result"]
+    status = result.get("status")
     if status not in {"creator", "administrator", "member", "restricted"}:
         raise HTTPException(status_code=403, detail="Only members of target chat allowed")
+    return result
 
 
 def validate_init_data(init_data: str, bot_token: str) -> dict[str, Any]:
