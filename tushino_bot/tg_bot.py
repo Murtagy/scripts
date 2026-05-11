@@ -186,22 +186,22 @@ async def command_app(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     try:
         await ensure_chat_member(context.bot, update.effective_user.id)
     except Exception:
-        await update.message.reply_text("Only members of target chat can use this bot menu")
+        await update.message.reply_text("Только участники целевого чата могут пользоваться меню бота")
         return
     if not WEBAPP_URL:
-        await update.message.reply_text("WEBAPP_URL not set")
+        await update.message.reply_text("WEBAPP_URL не настроен")
         return
     if update.effective_chat and update.effective_chat.type == "private":
         await update.message.reply_text(
-            "Open slots app",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Open app", web_app=WebAppInfo(url=WEBAPP_URL))]]),
+            "Открыть приложение слотов",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Открыть приложение", web_app=WebAppInfo(url=WEBAPP_URL))]]),
         )
         return
     username = BOT_USERNAME or (context.bot.username or "")
     if username:
-        await update.message.reply_text(f"Open bot in PM: https://t.me/{username}")
+        await update.message.reply_text(f"Открой бота в личке: https://t.me/{username}")
     else:
-        await update.message.reply_text("Open bot in private chat and run /app there")
+        await update.message.reply_text("Открой бота в личке и вызови /app")
 
 
 def format_logs(lines: list[dict]) -> str:
@@ -228,10 +228,10 @@ async def command_week_init(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     try:
         await ensure_chat_member(context.bot, update.effective_user.id)
     except Exception:
-        await update.effective_message.reply_text("Only members of target chat can use this bot menu")
+        await update.effective_message.reply_text("Только участники целевого чата могут пользоваться меню бота")
         return
     if not is_admin(update.effective_user.id):
-        await update.effective_message.reply_text("Admin only")
+        await update.effective_message.reply_text("Только для админов")
         return
     user = {
         "user_id": update.effective_user.id,
@@ -240,7 +240,7 @@ async def command_week_init(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     }
     await upsert_week_control_message(context.bot)
     slots_service.log_action("week_init", user=user)
-    await update.effective_message.reply_text("Week ready")
+    await update.effective_message.reply_text("Неделя обновлена")
 
 
 async def command_week_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -249,10 +249,10 @@ async def command_week_reset(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         await ensure_chat_member(context.bot, update.effective_user.id)
     except Exception:
-        await update.effective_message.reply_text("Only members of target chat can use this bot menu")
+        await update.effective_message.reply_text("Только участники целевого чата могут пользоваться меню бота")
         return
     if not is_admin(update.effective_user.id):
-        await update.effective_message.reply_text("Admin only")
+        await update.effective_message.reply_text("Только для админов")
         return
     user = {
         "user_id": update.effective_user.id,
@@ -261,7 +261,7 @@ async def command_week_reset(update: Update, context: ContextTypes.DEFAULT_TYPE)
     }
     await upsert_week_control_message(context.bot, force_new=True)
     slots_service.log_action("week_reset", user=user)
-    await update.effective_message.reply_text("Week rebuilt")
+    await update.effective_message.reply_text("Неделя пересоздана")
 
 
 async def command_slots(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -270,7 +270,7 @@ async def command_slots(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     try:
         await ensure_chat_member(context.bot, update.effective_user.id)
     except Exception:
-        await update.effective_message.reply_text("Only members of target chat can use this bot menu")
+        await update.effective_message.reply_text("Только участники целевого чата могут пользоваться меню бота")
         return
     week = slots_service.create_or_get_active_week()
     await update.effective_message.reply_text(week_control.build_week_text(week))
@@ -282,7 +282,7 @@ async def command_undo_roll(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     try:
         await ensure_chat_member(context.bot, update.effective_user.id)
     except Exception:
-        await update.effective_message.reply_text("Only members of target chat can use this bot menu")
+        await update.effective_message.reply_text("Только участники целевого чата могут пользоваться меню бота")
         return
     user = {
         "user_id": update.effective_user.id,
@@ -292,7 +292,7 @@ async def command_undo_roll(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     try:
         item = slots_service.undo_last_roll(user)
         await week_control.upsert_week_control_message(context.bot)
-        await update.effective_message.reply_text(f"Undo ok: {item['slot_code']}/{item['name']}")
+        await update.effective_message.reply_text(f"Бросок отменен: {item['slot_code']}/{item['name']}")
     except (NotFoundError, slots_service.ConflictError) as exc:
         await update.effective_message.reply_text(str(exc))
 
@@ -303,7 +303,7 @@ async def command_logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     try:
         await ensure_chat_member(context.bot, update.effective_user.id)
     except Exception:
-        await update.effective_message.reply_text("Only members of target chat can use this bot menu")
+        await update.effective_message.reply_text("Только участники целевого чата могут пользоваться меню бота")
         return
     limit = 20
     if context.args and context.args[0].isdigit():
@@ -320,14 +320,14 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     try:
         if data == "week:refresh":
             await upsert_week_control_message(context.bot)
-            await query.answer("Refreshed")
+            await query.answer("Обновлено")
             return
         if data == "week:reset":
             if update.effective_user is None or not is_admin(update.effective_user.id):
-                await query.answer("Admin only", show_alert=True)
+                await query.answer("Только для админов", show_alert=True)
                 return
             await upsert_week_control_message(context.bot, force_new=True)
-            await query.answer("Week rebuilt")
+            await query.answer("Неделя пересоздана")
             return
         if data.startswith("item:roll:"):
             item_id = int(data.split(":", 2)[2])

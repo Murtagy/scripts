@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tushino Slots</title>
+  <title>Слоты Тушино</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; background: #17212b; color: #f5f5f5; }
@@ -27,17 +27,17 @@
 <body>
   <div class="wrap">
     <div class="topbar">
-      <h2 style="margin:0">Tushino Slots</h2>
-      <button id="refreshBtn" class="secondary">Refresh</button>
+      <h2 style="margin:0">Слоты Тушино</h2>
+      <button id="refreshBtn" class="secondary">Обновить</button>
     </div>
-    <div class="muted" id="weekLabel">Loading...</div>
+    <div class="muted" id="weekLabel">Загрузка...</div>
     <div class="row" id="slotTabs" style="margin-top:12px"></div>
 
     <div class="card">
-      <div><b>Add item</b></div>
-      <input id="itemName" placeholder="BTR-70, Pilot, Medic..." />
+      <div><b>Добавить айтем</b></div>
+      <input id="itemName" placeholder="BTR-70, Пилот, Медик..." />
       <div class="row" style="margin-top:10px">
-        <button id="addBtn">Add</button>
+        <button id="addBtn">Добавить</button>
       </div>
       <div class="msg" id="msg"></div>
     </div>
@@ -66,7 +66,7 @@ async function api(path, options = {}) {
     },
   });
   if (!res.ok) {
-    let detail = 'Request failed';
+    let detail = 'Ошибка запроса';
     try {
       const body = await res.json();
       detail = body.detail || detail;
@@ -87,7 +87,7 @@ function escapeHtml(str) {
 function renderTabs() {
   const tabs = document.getElementById('slotTabs');
   tabs.innerHTML = '';
-  for (const slot of state.week.slots) {
+  за (const slot of state.week.slots) {
     const btn = document.createElement('button');
     btn.className = 'slot-btn' + (slot.code === state.activeSlot ? ' active' : '');
     btn.textContent = `${slot.code} (${slot.items.length})`;
@@ -99,8 +99,12 @@ function renderTabs() {
   }
 }
 
+function statusLabel(status) {
+  return ({ open: 'открыт', called: 'завершен', tiebreak: 'переброс' }[status] || status);
+}
+
 function scoreList(item) {
-  if (!item.scores.length) return '<div class="muted">No rolls yet</div>';
+  if (!item.scores.length) return '<div class="muted">Пока нет бросков</div>';
   const rows = item.scores.map((s, idx) => {
     const name = escapeHtml(s.display_name || s.username);
     const winner = item.status === 'called' && idx === 0 ? ' ✅' : '';
@@ -112,20 +116,20 @@ function scoreList(item) {
 
 function itemCard(item) {
   const tieText = item.status === 'tiebreak' && item.tied_display_names.length
-    ? `<div class="muted">Tie between: ${item.tied_display_names.map(escapeHtml).join(', ')}</div>`
+    ? `<div class="muted">Переброс между: ${item.tied_display_names.map(escapeHtml).join(', ')}</div>`
     : '';
   return `
     <div class="card">
       <div class="item-header">
         <div>
           <div><b>${escapeHtml(item.name)}</b></div>
-          <div class="muted">status: ${item.status} · round ${item.round_no}</div>
+          <div class="muted">статус: ${statusLabel(item.status)} · раунд ${item.round_no}</div>
         </div>
         <div class="row">
-          <button onclick="rollItem(${item.id})">Roll</button>
-          <button class="secondary" onclick="callItem(${item.id})">Call</button>
-          <button class="secondary" onclick="reopenItem(${item.id})">Reopen</button>
-          <button class="danger" onclick="deleteItem(${item.id})">Delete</button>
+          <button onclick="rollItem(${item.id})">Бросок</button>
+          <button class="secondary" onclick="callItem(${item.id})">Итог</button>
+          <button class="secondary" onclick="reopenItem(${item.id})">Переоткрыть</button>
+          <button class="danger" onclick="deleteItem(${item.id})">Удалить</button>
         </div>
       </div>
       ${tieText}
@@ -135,12 +139,12 @@ function itemCard(item) {
 }
 
 function render() {
-  document.getElementById('weekLabel').textContent = `Week ${state.week.week_key}`;
+  document.getElementById('weekLabel').textContent = `Неделя ${state.week.week_key}`;
   renderTabs();
   const slot = state.week.slots.find(x => x.code === state.activeSlot) || state.week.slots[0];
   const view = document.getElementById('slotView');
   if (!slot || !slot.items.length) {
-    view.innerHTML = '<div class="card"><div class="muted">No items yet</div></div>';
+    view.innerHTML = '<div class="card"><div class="muted">Пока нет айтемов</div></div>';
     return;
   }
   view.innerHTML = slot.items.map(itemCard).join('');
@@ -164,7 +168,7 @@ async function addItem() {
       body: JSON.stringify({ name }),
     });
     input.value = '';
-    msg('Item added');
+    msg('Айтем добавлен');
     await reloadWeek();
   } catch (e) {
     msg(e.message);
@@ -174,7 +178,7 @@ async function addItem() {
 async function rollItem(itemId) {
   try {
     const item = await api(`/api/items/${itemId}/roll`, { method: 'POST' });
-    msg(`Rolled ${item.last_roll.value} for ${item.name}`);
+    msg(`Бросокed ${item.last_roll.value} за ${item.name}`);
     await reloadWeek();
   } catch (e) {
     msg(e.message);
@@ -184,7 +188,7 @@ async function rollItem(itemId) {
 async function callItem(itemId) {
   try {
     const item = await api(`/api/items/${itemId}/call`, { method: 'POST' });
-    msg(item.call_result === 'tiebreak' ? 'Tie. Need tiebreak roll.' : 'Winner called.');
+    msg(item.call_result === 'tiebreak' ? 'Ничья. Нужен переброс.' : 'Победитель определен.');
     await reloadWeek();
   } catch (e) {
     msg(e.message);
@@ -194,7 +198,7 @@ async function callItem(itemId) {
 async function reopenItem(itemId) {
   try {
     await api(`/api/items/${itemId}/reopen`, { method: 'POST' });
-    msg('Competition reopened');
+    msg('Розыгрыш переоткрыт');
     await reloadWeek();
   } catch (e) {
     msg(e.message);
@@ -204,7 +208,7 @@ async function reopenItem(itemId) {
 async function deleteItem(itemId) {
   try {
     await api(`/api/items/${itemId}`, { method: 'DELETE' });
-    msg('Item deleted');
+    msg('Айтем удален');
     await reloadWeek();
   } catch (e) {
     msg(e.message);

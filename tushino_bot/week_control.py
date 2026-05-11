@@ -48,7 +48,7 @@ def build_week_text(week: dict) -> str:
 def build_week_keyboard(week: dict) -> InlineKeyboardMarkup:
     rows = []
     if BOT_USERNAME:
-        rows.append([InlineKeyboardButton("Open bot", url=f"https://t.me/{BOT_USERNAME}")])
+        rows.append([InlineKeyboardButton("Открыть бота", url=f"https://t.me/{BOT_USERNAME}")])
     for slot in week["slots"]:
         for item in slot["items"]:
             label = f"{slot['code']}-{item['name']}"
