@@ -34,7 +34,7 @@
     <div class="row" id="slotTabs" style="margin-top:12px"></div>
 
     <div class="card">
-      <div><b>Добавить айтем</b></div>
+      <div><b>Добавить слот</b></div>
       <input id="itemName" placeholder="BTR-70, Пилот, Медик..." />
       <div class="row" style="margin-top:10px">
         <button id="addBtn">Добавить</button>
@@ -168,7 +168,7 @@ async function addItem() {
       body: JSON.stringify({ name }),
     });
     input.value = '';
-    msg('Айтем добавлен');
+    msg('Слот добавлен');
     await reloadWeek();
   } catch (e) {
     msg(e.message);
@@ -208,7 +208,7 @@ async function reopenItem(itemId) {
 async function deleteItem(itemId) {
   try {
     await api(`/api/items/${itemId}`, { method: 'DELETE' });
-    msg('Айтем удален');
+    msg('Слот удален');
     await reloadWeek();
   } catch (e) {
     msg(e.message);
