@@ -127,7 +127,8 @@ function itemCard(item) {
         </div>
         <div class="row">
           <button onclick="rollItem(${item.id})">Бросок</button>
-          <button class="secondary" onclick="callItem(${item.id})">Итог</button>
+          <button class="secondary" onclick="undoRoll(${item.id})">Отменить бросок</button>
+          <button class="secondary" onclick="callItem(${item.id})">Подвести итог</button>
           <button class="secondary" onclick="reopenItem(${item.id})">Переоткрыть</button>
           <button class="danger" onclick="deleteItem(${item.id})">Удалить</button>
         </div>
@@ -185,6 +186,16 @@ async function rollItem(itemId) {
   }
 }
 
+async function undoRoll(itemId) {
+  try {
+    await api(`/api/items/${itemId}/undo_roll`, { method: 'POST' });
+    msg('Бросок отменен');
+    await reloadWeek();
+  } catch (e) {
+    msg(e.message);
+  }
+}
+
 async function callItem(itemId) {
   try {
     const item = await api(`/api/items/${itemId}/call`, { method: 'POST' });
@@ -206,6 +217,7 @@ async function reopenItem(itemId) {
 }
 
 async function deleteItem(itemId) {
+  if (!window.confirm('Уверен, что хочешь удалить слот?')) return;
   try {
     await api(`/api/items/${itemId}`, { method: 'DELETE' });
     msg('Слот удален');
@@ -223,6 +235,7 @@ document.getElementById('itemName').addEventListener('keydown', e => {
 
 reloadWeek().catch(e => msg(e.message));
 window.rollItem = rollItem;
+window.undoRoll = undoRoll;
 window.callItem = callItem;
 window.reopenItem = reopenItem;
 window.deleteItem = deleteItem;

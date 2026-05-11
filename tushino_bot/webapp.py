@@ -116,6 +116,14 @@ def roll_item(item_id: int, x_telegram_init_data: str | None = Header(default=No
     return result
 
 
+@app.post("/api/items/{item_id}/undo_roll")
+def undo_item_roll(item_id: int, x_telegram_init_data: str | None = Header(default=None)):
+    user = require_user(x_telegram_init_data)
+    result = slots_service.undo_item_roll(item_id, user)
+    week_control.refresh_week_control_sync()
+    return result
+
+
 @app.post("/api/items/{item_id}/call")
 def call_item(item_id: int, x_telegram_init_data: str | None = Header(default=None)):
     user = require_user(x_telegram_init_data)

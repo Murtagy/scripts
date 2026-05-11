@@ -381,7 +381,7 @@ def reopen_item(item_id: int, user: dict[str, Any] | None = None) -> dict[str, A
         item = _get_item_row(conn, item_id)
         open_comp = _get_open_competition(conn, item_id)
         if open_comp is not None:
-            raise ConflictError("Competition already open")
+            raise ConflictError("Розыгрыш уже открыт")
         _create_competition(conn, item_id)
         conn.commit()
         result = _build_item_payload(conn, item)
@@ -406,9 +406,51 @@ def undo_last_roll(user: dict[str, Any]) -> dict[str, Any]:
             (user["user_id"],),
         ).fetchone()
         if row is None:
-            raise NotFoundError("No roll to undo")
+            raise NotFoundError("Нет броска для отмены")
         if row["competition_status"] == "called":
-            raise ConflictError("Cannot undo roll after winner already called")
+            raise ConflictError("Нельзя отменить бросок после подведения итога")
+
+        conn.execute("DELETE FROM rolls WHERE id = ?", (row["id"],))
+        conn.execute(
+            "UPDATE item_competitions SET status = 'open', tiebreak_user_ids = NULL WHERE id = ?",
+            (row["competition_id"],),
+        )
+        conn.commit()
+
+        item = _get_item_row(conn, row["item_id"])
+        payload = _build_item_payload(conn, item)
+        log_action(
+            "undo_roll",
+            user=user,
+            week_id=row["week_id"],
+            slot_code=row["slot_code"],
+            item_id=row["item_id"],
+            item_name=row["item_name"],
+            details=f"deleted_roll_id={row['id']};value={row['value']};tiebreak_round_no={row['tiebreak_round_no']}",
+        )
+        return payload
+
+
+def undo_item_roll(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT r.*, c.status AS competition_status, c.item_id, i.name AS item_name, s.code AS slot_code, s.week_id
+            FROM rolls r
+            JOIN item_competitions c ON c.id = r.competition_id
+            JOIN items i ON i.id = c.item_id
+            JOIN slots s ON s.id = i.slot_id
+            JOIN weeks w ON w.id = s.week_id
+            WHERE w.active = 1 AND r.user_id = ? AND c.item_id = ? AND i.active = 1
+            ORDER BY r.created_at DESC, r.id DESC
+            LIMIT 1
+            """,
+            (user["user_id"], item_id),
+        ).fetchone()
+        if row is None:
+            raise NotFoundError("Нет броска для отмены")
+        if row["competition_status"] == "called":
+            raise ConflictError("Нельзя отменить бросок после подведения итога")
 
         conn.execute("DELETE FROM rolls WHERE id = ?", (row["id"],))
         conn.execute(
