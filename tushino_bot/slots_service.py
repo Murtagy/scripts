@@ -327,7 +327,8 @@ def call_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
         item = _get_item_row(conn, item_id)
         comp = _get_open_competition(conn, item_id)
         if comp is None:
-            raise ConflictError("No open competition for item")
+            comp_id = _create_competition(conn, item_id)
+            comp = conn.execute("SELECT * FROM item_competitions WHERE id = ?", (comp_id,)).fetchone()
 
         tiebreak_round_no = 1 if comp["status"] == "tiebreak" else 0
         rolls = conn.execute(
@@ -339,7 +340,24 @@ def call_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
             (comp["id"], tiebreak_round_no),
         ).fetchall()
         if not rolls:
-            raise ConflictError("No rolls yet")
+            conn.execute(
+                """
+                UPDATE item_competitions
+                SET status = 'called',
+                    called_by_user_id = ?,
+                    called_by_username = ?,
+                    called_at = CURRENT_TIMESTAMP,
+                    tiebreak_user_ids = NULL
+                WHERE id = ?
+                """,
+                (user.get("user_id"), user.get("username"), comp["id"]),
+            )
+            conn.commit()
+            payload = _build_item_payload(conn, item)
+            payload["call_result"] = "winner"
+            payload["manual_call"] = True
+            log_action("call_winner", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details="manual_without_rolls=1")
+            return payload
 
         top_value = rolls[0]["value"]
         tied = [r for r in rolls if r["value"] == top_value]

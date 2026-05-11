@@ -35,6 +35,8 @@ def build_week_text(week: dict) -> str:
                 top = item["scores"][0]
                 winner = top["display_name"] or top["username"]
                 parts.append(f"{item['name']}={winner}✅{best_suffix}")
+            elif item["status"] == "called":
+                parts.append(f"{item['name']}=✅")
             elif item["status"] == "tiebreak":
                 parts.append(f"{item['name']}=переброс{best_suffix}")
             else:

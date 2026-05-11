@@ -241,7 +241,7 @@ async function undoRoll(itemId) {
 async function callItem(itemId) {
   try {
     const item = await api(`/api/items/${itemId}/call`, { method: 'POST' });
-    msg(item.call_result === 'tiebreak' ? 'Ничья. Нужен переброс.' : 'Победитель определен.');
+    msg(item.call_result === 'tiebreak' ? 'Ничья. Нужен переброс.' : (item.manual_call ? 'Слот помечен как занятый.' : 'Победитель определен.'));
     await reloadWeek();
   } catch (e) {
     msg(e.message);
