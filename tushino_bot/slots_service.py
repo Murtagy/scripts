@@ -290,8 +290,7 @@ def roll_for_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
             """,
             (comp["id"], user["user_id"], tiebreak_round_no),
         ).fetchone()
-        if tiebreak_round_no == 0 and has_previous_base_roll(conn, item["week_id"], user["user_id"], item_id):
-            log_action("warning_repeat_roll", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details="Повторный обычный бросок после отмены")
+        is_repeat_base_roll = tiebreak_round_no == 0 and has_previous_base_roll(conn, item["week_id"], user["user_id"], item_id)
         if existing:
             raise ConflictError("User already rolled for this item")
 
@@ -319,6 +318,8 @@ def roll_for_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
             "display_name": user.get("display_name"),
         }
         log_action("roll", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details=f"value={value};tiebreak_round_no={tiebreak_round_no}")
+        if is_repeat_base_roll:
+            log_action("warning_repeat_roll", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details=f"value={value}")
         return payload
 
 

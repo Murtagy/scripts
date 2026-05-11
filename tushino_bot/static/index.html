@@ -161,7 +161,7 @@ function formatLogLine(row) {
     week_init: 'обновил неделю',
     week_reset: 'пересоздал неделю',
     tunnel_restart: 'перезапустил tunnel',
-    warning_repeat_roll: 'ВНИМАНИЕ! сделал повторный бросок',
+    warning_repeat_roll: '🚨 ВНИМАНИЕ! сделал повторный бросок',
   };
   const action = actionMap[row.action] || row.action;
   return `${escapeHtml(row.created_at)} — ${who} ${escapeHtml(action)}${target ? ' ' + escapeHtml(target) : ''}`;

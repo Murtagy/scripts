@@ -286,7 +286,7 @@ def format_logs(lines: list[dict]) -> str:
         "week_init": "обновил неделю",
         "week_reset": "пересоздал неделю",
         "tunnel_restart": "перезапустил tunnel",
-        "warning_repeat_roll": "ВНИМАНИЕ! сделал повторный бросок",
+        "warning_repeat_roll": "🚨 ВНИМАНИЕ! сделал повторный бросок",
     }
 
     out = []
