@@ -1,12 +1,18 @@
+import asyncio
 import datetime
 import logging
 import os
+import re
+import subprocess
 import threading
+import time
 from collections import defaultdict
+from pathlib import Path
 
 import pytz
+import requests
 import uvicorn
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonWebApp, Update, WebAppInfo
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -38,6 +44,10 @@ WEBAPP_URL = os.environ.get("WEBAPP_URL", "")
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "")
 WEBAPP_HOST = os.environ.get("WEBAPP_HOST", "127.0.0.1")
 WEBAPP_PORT = int(os.environ.get("WEBAPP_PORT", "8000"))
+PROJECT_DIR = Path(__file__).resolve().parent
+TOKEN_SH = PROJECT_DIR / "token.sh"
+CLOUDFLARED_LOG = PROJECT_DIR / "cloudflared.log"
+CLOUDFLARED_CMD = ["/usr/bin/cloudflared", "tunnel", "--protocol", "http2", "--no-autoupdate", "--url", f"http://{WEBAPP_HOST}:{WEBAPP_PORT}"]
 ADMIN_USER_IDS = {
     int(x.strip())
     for x in os.environ.get("ADMIN_USER_IDS", "").split(",")
@@ -101,6 +111,63 @@ async def resolve_display_name(bot, user) -> str:
     except Exception as exc:
         logger.warning("Could not resolve custom title for %s: %s", user.id, exc)
     return fallback
+
+
+def _write_token_var(name: str, value: str) -> None:
+    lines = TOKEN_SH.read_text().splitlines() if TOKEN_SH.exists() else []
+    out = []
+    found = False
+    for line in lines:
+        if line.startswith(f"export {name}="):
+            out.append(f"export {name}={value}")
+            found = True
+        else:
+            out.append(line)
+    if not found:
+        out.append(f"export {name}={value}")
+    TOKEN_SH.write_text("\n".join(out) + "\n")
+
+
+def _extract_tunnel_url() -> str | None:
+    if not CLOUDFLARED_LOG.exists():
+        return None
+    m = re.search(r"https://[-a-z0-9]+\.trycloudflare\.com", CLOUDFLARED_LOG.read_text())
+    return m.group(0) if m else None
+
+
+def _cloudflare_health(url: str | None) -> str:
+    if not url:
+        return "no-url"
+    try:
+        r = requests.get(url.rstrip("/") + "/health", timeout=10)
+        return f"ok:{r.status_code}" if r.ok else f"bad:{r.status_code}"
+    except Exception as exc:
+        return f"err:{exc.__class__.__name__}"
+
+
+def _restart_quick_tunnel_blocking() -> str:
+    subprocess.run(["pkill", "-f", " ".join(CLOUDFLARED_CMD)], check=False)
+    time.sleep(1)
+    with CLOUDFLARED_LOG.open("w") as f:
+        proc = subprocess.Popen(CLOUDFLARED_CMD, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
+    for _ in range(40):
+        url = _extract_tunnel_url()
+        if url:
+            _write_token_var("WEBAPP_URL", url)
+            return url
+        if proc.poll() is not None:
+            break
+        time.sleep(1)
+    raise RuntimeError("Не удалось поднять Cloudflare Tunnel")
+
+
+async def set_webapp_menu_button(bot, url: str) -> None:
+    await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Открыть слоты", web_app=WebAppInfo(url=url)))
+
+
+async def tunnel_status_text() -> str:
+    url = _extract_tunnel_url() or WEBAPP_URL
+    return f"Tunnel URL: {url or '-'}\nHealth: {_cloudflare_health(url)}"
 
 
 async def upsert_week_control_message(bot, force_new: bool = False) -> None:
@@ -311,6 +378,49 @@ async def command_logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.effective_message.reply_text(format_logs(slots_service.get_action_logs(limit)))
 
 
+async def command_tunnel_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None:
+        return
+    try:
+        await ensure_chat_member(context.bot, update.effective_user.id)
+    except Exception:
+        await update.effective_message.reply_text("Только участники целевого чата могут пользоваться меню бота")
+        return
+    if not is_admin(update.effective_user.id):
+        await update.effective_message.reply_text("Только для админов")
+        return
+    await update.effective_message.reply_text(await tunnel_status_text())
+
+
+async def command_tunnel_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    global WEBAPP_URL
+    if update.effective_user is None:
+        return
+    try:
+        await ensure_chat_member(context.bot, update.effective_user.id)
+    except Exception:
+        await update.effective_message.reply_text("Только участники целевого чата могут пользоваться меню бота")
+        return
+    if not is_admin(update.effective_user.id):
+        await update.effective_message.reply_text("Только для админов")
+        return
+    wait_msg = await update.effective_message.reply_text("Перезапускаю Cloudflare Tunnel...")
+    try:
+        new_url = await asyncio.to_thread(_restart_quick_tunnel_blocking)
+        WEBAPP_URL = new_url
+        os.environ["WEBAPP_URL"] = new_url
+        week_control.WEBAPP_URL = new_url
+        await set_webapp_menu_button(context.bot, new_url)
+        slots_service.log_action("tunnel_restart", user={
+            "user_id": update.effective_user.id,
+            "username": f"@{update.effective_user.username}" if update.effective_user.username else None,
+            "display_name": await resolve_display_name(context.bot, update.effective_user),
+        }, details=new_url)
+        await wait_msg.edit_text(f"Tunnel обновлен:\n{new_url}\nHealth: {_cloudflare_health(new_url)}")
+    except Exception as exc:
+        await wait_msg.edit_text(f"Ошибка перезапуска tunnel: {exc}")
+
+
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if query is None:
@@ -374,6 +484,8 @@ def main() -> None:
     application.add_handler(CommandHandler("slots", command_slots))
     application.add_handler(CommandHandler("undo_roll", command_undo_roll))
     application.add_handler(CommandHandler("logs", command_logs))
+    application.add_handler(CommandHandler("tunnel_status", command_tunnel_status))
+    application.add_handler(CommandHandler("tunnel_restart", command_tunnel_restart))
     application.add_handler(CallbackQueryHandler(handle_button))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, any_message))
 

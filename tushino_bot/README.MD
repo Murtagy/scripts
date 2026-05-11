@@ -113,6 +113,8 @@ bash ./run.sh
 - `/slots` — summary недели
 - `/undo_roll` — отменить свой последний бросок за текущую неделю
 - `/logs [N]` — показать последние действия, по умолчанию 20
+- `/tunnel_status` — статус Cloudflare Tunnel
+- `/tunnel_restart` — перезапустить Cloudflare Tunnel и обновить URL/menu button
 - `/week_init` — перерисовать/обновить week message
 - `/week_reset` — пересоздать неделю
 
