@@ -19,32 +19,37 @@ def item_display_name(score: dict) -> str:
 def build_week_text(week: dict) -> str:
     lines = [f"Неделя {week['week_key']}", ""]
     for slot in week["slots"]:
+        lines.append(f"{slot['code']}:")
         if not slot["items"]:
-            lines.append(f"{slot['code']}: пусто")
+            lines.append("- пусто")
             lines.append("")
             continue
-        parts = []
+
         for item in slot["items"]:
             latest_roll = item.get("latest_roll")
-            best_suffix = ""
+            leader_text = ""
             if item["scores"]:
                 top = item["scores"][0]
                 top_name = top["display_name"] or top["username"]
-                best_suffix = f" [{top_name} {top['best_value']}]"
+                leader_text = f", лидер - {top_name} {top['best_value']}"
+
+            latest_text = ""
+            if latest_roll:
+                latest_name = latest_roll["display_name"] or latest_roll["username"]
+                latest_text = f", посл бросок - {latest_name} {latest_roll['value']}"
+
             if item["status"] == "called" and item["scores"]:
                 top = item["scores"][0]
                 winner = top["display_name"] or top["username"]
-                parts.append(f"{item['name']}={winner}✅{best_suffix}")
+                line = f"- {item['name']}={winner}✅{leader_text}{latest_text}"
             elif item["status"] == "called":
-                parts.append(f"{item['name']}=✅")
+                line = f"- {item['name']}=✅"
             elif item["status"] == "tiebreak":
-                parts.append(f"{item['name']}=переброс{best_suffix}")
+                line = f"- {item['name']}=переброс{leader_text}{latest_text}"
             else:
-                parts.append(f"{item['name']}={len(item['scores'])}🎲{best_suffix}")
-            if latest_roll:
-                latest_name = latest_roll["display_name"] or latest_roll["username"]
-                parts.append(f"↳ {latest_name} {latest_roll['value']}")
-        lines.append(f"{slot['code']}: " + "; ".join(parts))
+                line = f"- {item['name']}={len(item['scores'])}🎲{leader_text}{latest_text}"
+
+            lines.append(line)
         lines.append("")
     return "\n".join(lines).strip()
 
