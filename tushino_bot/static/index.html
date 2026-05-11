@@ -87,7 +87,7 @@ function escapeHtml(str) {
 function renderTabs() {
   const tabs = document.getElementById('slotTabs');
   tabs.innerHTML = '';
-  за (const slot of state.week.slots) {
+  for (const slot of state.week.slots) {
     const btn = document.createElement('button');
     btn.className = 'slot-btn' + (slot.code === state.activeSlot ? ' active' : '');
     btn.textContent = `${slot.code} (${slot.items.length})`;
@@ -178,7 +178,7 @@ async function addItem() {
 async function rollItem(itemId) {
   try {
     const item = await api(`/api/items/${itemId}/roll`, { method: 'POST' });
-    msg(`Бросокed ${item.last_roll.value} за ${item.name}`);
+    msg(`Бросок ${item.last_roll.value} за ${item.name}`);
     await reloadWeek();
   } catch (e) {
     msg(e.message);
