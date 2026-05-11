@@ -17,10 +17,11 @@ def item_display_name(score: dict) -> str:
 
 
 def build_week_text(week: dict) -> str:
-    lines = [f"Неделя {week['week_key']}"]
+    lines = [f"Неделя {week['week_key']}", ""]
     for slot in week["slots"]:
         if not slot["items"]:
             lines.append(f"{slot['code']}: пусто")
+            lines.append("")
             continue
         parts = []
         for item in slot["items"]:
@@ -42,6 +43,7 @@ def build_week_text(week: dict) -> str:
                 latest_name = latest_roll["display_name"] or latest_roll["username"]
                 parts.append(f"↳ {latest_name} {latest_roll['value']}")
         lines.append(f"{slot['code']}: " + "; ".join(parts))
+        lines.append("")
     return "\n".join(lines).strip()
 
 
