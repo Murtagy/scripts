@@ -154,6 +154,73 @@ export WEBAPP_URL=https://something.trycloudflare.com
 - named Cloudflare Tunnel
 - или обычный reverse proxy + HTTPS
 
+## Деплой после коммитов
+
+Если код уже крутится на VPS и проект лежит в `/http/scripts/tushino_bot`, после `git push` можно обновить так:
+
+```bash
+ssh wg
+cd /http/scripts/tushino_bot
+git pull --ff-only
+pkill -f "python3 tg_bot.py" || true
+./run.sh >/dev/null 2>&1 </dev/null &
+```
+
+Потом проверить:
+
+```bash
+ps aux | grep -E "python3 tg_bot.py" | grep -v grep
+ss -ltnp | grep ":8000"
+```
+
+Если менялся текст weekly message / кнопки, можно принудительно перерисовать:
+
+```bash
+cd /http/scripts/tushino_bot
+source environment/bin/activate
+source token.sh
+python3 - <<'PY'
+from db import init_db
+import week_control
+init_db()
+week_control.refresh_week_control_sync()
+print("refreshed")
+PY
+```
+
+Если менялись команды меню бота, можно перевыставить их:
+
+```bash
+cd /http/scripts/tushino_bot
+source environment/bin/activate
+source token.sh
+python3 - <<'PY'
+import os, requests
+url = "https://api.telegram.org/bot" + os.environ["BOT_TOKEN"] + "/setMyCommands"
+cmds = {
+  "commands": [
+    {"command": "app", "description": "Открыть приложение слотов"},
+    {"command": "slots", "description": "Показать слоты недели"},
+    {"command": "undo_roll", "description": "Отменить последний бросок"},
+    {"command": "logs", "description": "Показать журнал действий"},
+    {"command": "tunnel_status", "description": "Статус Cloudflare Tunnel"},
+    {"command": "tunnel_restart", "description": "Перезапустить Cloudflare Tunnel"},
+    {"command": "week_init", "description": "Обновить сообщения недели"},
+    {"command": "week_reset", "description": "Пересоздать неделю"}
+  ]
+}
+print(requests.post(url, json=cmds, timeout=30).json())
+PY
+```
+
+Если miniapp перестал открываться из-за Quick Tunnel:
+
+```text
+/app
+/tunnel_status
+/tunnel_restart
+```
+
 ## Проверка
 
 Локальная health-check ручка:
