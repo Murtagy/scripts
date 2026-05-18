@@ -365,8 +365,7 @@ def _finalize_item_competition(conn, item_id: int, user: dict[str, Any] | None, 
             winner_username = ?,
             called_by_user_id = ?,
             called_by_username = ?,
-            called_at = CURRENT_TIMESTAMP,
-            tiebreak_user_ids = NULL
+            called_at = CURRENT_TIMESTAMP
         WHERE id = ?
         """,
         (
@@ -433,12 +432,7 @@ def auto_close_open_items(user: dict[str, Any] | None = None) -> list[dict[str, 
 
 
 def normalize_competitions() -> int:
-    with get_conn() as conn:
-        cur = conn.execute(
-            "UPDATE item_competitions SET status = 'open', tiebreak_user_ids = NULL WHERE status = 'tiebreak'"
-        )
-        conn.commit()
-        return cur.rowcount
+    return 0
 
 
 def reopen_item(item_id: int, user: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -477,7 +471,7 @@ def undo_last_roll(user: dict[str, Any]) -> dict[str, Any]:
 
         conn.execute("DELETE FROM rolls WHERE id = ?", (row["id"],))
         conn.execute(
-            "UPDATE item_competitions SET status = 'open', tiebreak_user_ids = NULL WHERE id = ?",
+            "UPDATE item_competitions SET status = 'open' WHERE id = ?",
             (row["competition_id"],),
         )
         conn.commit()
@@ -519,7 +513,7 @@ def undo_item_roll(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
 
         conn.execute("DELETE FROM rolls WHERE id = ?", (row["id"],))
         conn.execute(
-            "UPDATE item_competitions SET status = 'open', tiebreak_user_ids = NULL WHERE id = ?",
+            "UPDATE item_competitions SET status = 'open' WHERE id = ?",
             (row["competition_id"],),
         )
         conn.commit()

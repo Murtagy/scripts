@@ -42,6 +42,47 @@ def _migrate_rolls_table(conn) -> None:
     conn.execute("PRAGMA foreign_keys=ON")
 
 
+def _migrate_item_competitions_table(conn) -> None:
+    cols = _table_columns(conn, "item_competitions")
+    if not cols or "tiebreak_user_ids" not in cols:
+        return
+    conn.execute("PRAGMA foreign_keys=OFF")
+    conn.executescript(
+        """
+        DROP TABLE IF EXISTS item_competitions_new;
+
+        CREATE TABLE IF NOT EXISTS item_competitions_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER NOT NULL,
+            round_no INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            winner_user_id INTEGER,
+            winner_username TEXT,
+            called_by_user_id INTEGER,
+            called_by_username TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            called_at TEXT,
+            UNIQUE(item_id, round_no),
+            FOREIGN KEY(item_id) REFERENCES items(id)
+        );
+
+        INSERT OR REPLACE INTO item_competitions_new (
+            id, item_id, round_no, status, winner_user_id, winner_username,
+            called_by_user_id, called_by_username, created_at, called_at
+        )
+        SELECT
+            id, item_id, round_no, status, winner_user_id, winner_username,
+            called_by_user_id, called_by_username, created_at, called_at
+        FROM item_competitions
+        ORDER BY id ASC;
+
+        DROP TABLE item_competitions;
+        ALTER TABLE item_competitions_new RENAME TO item_competitions;
+        """
+    )
+    conn.execute("PRAGMA foreign_keys=ON")
+
+
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(
@@ -80,7 +121,6 @@ def init_db() -> None:
                 item_id INTEGER NOT NULL,
                 round_no INTEGER NOT NULL,
                 status TEXT NOT NULL,
-                tiebreak_user_ids TEXT,
                 winner_user_id INTEGER,
                 winner_username TEXT,
                 called_by_user_id INTEGER,
@@ -132,6 +172,7 @@ def init_db() -> None:
             """
         )
         _migrate_rolls_table(conn)
+        _migrate_item_competitions_table(conn)
         conn.commit()
 
 
