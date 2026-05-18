@@ -159,7 +159,12 @@ function formatLogLine(row) {
     tunnel_restart: 'перезапустил tunnel',
     warning_repeat_roll: '🚨 ВНИМАНИЕ! сделал повторный бросок',
   };
-  const action = actionMap[row.action] || row.action;
+  let action = actionMap[row.action] || row.action;
+  const details = row.details || '';
+  const value = (details.match(/(?:^|;)value=([^;]+)/) || [null, null])[1];
+  if (value && (row.action === 'roll' || row.action === 'warning_repeat_roll')) {
+    action += ` ${value}`;
+  }
   return `${escapeHtml(row.created_at)} — ${who} ${escapeHtml(action)}${target ? ' ' + escapeHtml(target) : ''}`;
 }
 

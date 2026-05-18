@@ -68,17 +68,20 @@ def get_action_logs(limit: int = 20) -> list[dict[str, Any]]:
         return [_row_to_dict(row) for row in rows]
 
 
-def has_previous_base_roll(conn, week_id: int, user_id: int, item_id: int) -> bool:
-    row = conn.execute(
+def is_repeat_roll_after_undo(conn, week_id: int, user_id: int, item_id: int) -> bool:
+    rows = conn.execute(
         """
-        SELECT 1
+        SELECT action
         FROM action_logs
-        WHERE week_id = ? AND user_id = ? AND item_id = ? AND action = 'roll' AND details LIKE '%tiebreak_round_no=0%'
-        LIMIT 1
+        WHERE week_id = ? AND user_id = ? AND item_id = ?
+        ORDER BY id DESC
+        LIMIT 3
         """,
         (week_id, user_id, item_id),
-    ).fetchone()
-    return row is not None
+    ).fetchall()
+    if len(rows) < 2:
+        return False
+    return rows[0]["action"] == "roll" and rows[1]["action"] == "undo_roll"
 
 
 def create_or_get_active_week(target_week_key: str | None = None, force_new: bool = False) -> dict[str, Any]:
@@ -295,7 +298,7 @@ def roll_for_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
             """,
             (comp["id"], user["user_id"]),
         ).fetchone()
-        is_repeat_base_roll = has_previous_base_roll(conn, item["week_id"], user["user_id"], item_id)
+        is_repeat_base_roll = is_repeat_roll_after_undo(conn, item["week_id"], user["user_id"], item_id)
         if existing:
             raise ConflictError("User already rolled for this item")
 
@@ -321,9 +324,9 @@ def roll_for_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
             "username": user.get("username"),
             "display_name": user.get("display_name"),
         }
-        log_action("roll", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details=f"value={value};tiebreak_round_no=0")
+        log_action("roll", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details=f"value={value}")
         if is_repeat_base_roll:
-            log_action("warning_repeat_roll", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details=f"value={value}")
+            log_action("warning_repeat_roll", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details=f"value={value};reason=repeat_after_undo")
         return payload
 
 
@@ -378,6 +381,8 @@ def _finalize_item_competition(conn, item_id: int, user: dict[str, Any] | None, 
     payload = _build_item_payload(conn, item)
     payload["call_result"] = "winner"
     payload["auto_call"] = auto
+    if not rolls:
+        payload["manual_call"] = not auto
     if winner:
         log_action(
             "call_winner",
@@ -415,14 +420,15 @@ def auto_close_open_items(user: dict[str, Any] | None = None) -> list[dict[str, 
             FROM items i
             JOIN slots s ON s.id = i.slot_id
             JOIN weeks w ON w.id = s.week_id
-            JOIN item_competitions c ON c.item_id = i.id
-            WHERE w.active = 1 AND i.active = 1 AND c.status = 'open'
-            GROUP BY i.id
+            WHERE w.active = 1 AND i.active = 1
             ORDER BY i.id ASC
             """
         ).fetchall()
         for row in rows:
-            results.append(_finalize_item_competition(conn, row["id"], user, auto=True))
+            try:
+                results.append(_finalize_item_competition(conn, row["id"], user, auto=True))
+            except ConflictError:
+                continue
     return results
 
 
@@ -485,7 +491,7 @@ def undo_last_roll(user: dict[str, Any]) -> dict[str, Any]:
             slot_code=row["slot_code"],
             item_id=row["item_id"],
             item_name=row["item_name"],
-            details=f"deleted_roll_id={row['id']};value={row['value']};tiebreak_round_no={row['tiebreak_round_no']}",
+            details=f"deleted_roll_id={row['id']};value={row['value']}",
         )
         return payload
 
@@ -527,7 +533,7 @@ def undo_item_roll(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
             slot_code=row["slot_code"],
             item_id=row["item_id"],
             item_name=row["item_name"],
-            details=f"deleted_roll_id={row['id']};value={row['value']};tiebreak_round_no={row['tiebreak_round_no']}",
+            details=f"deleted_roll_id={row['id']};value={row['value']}",
         )
         return payload
 
@@ -606,7 +612,7 @@ def _build_item_payload(conn, item) -> dict[str, Any]:
         ).fetchall()
         latest_roll = conn.execute(
             """
-            SELECT user_id, username, display_name, value, tiebreak_round_no
+            SELECT user_id, username, display_name, value
             FROM rolls
             WHERE competition_id = ?
             ORDER BY created_at DESC, id DESC
@@ -643,8 +649,6 @@ def _build_item_payload(conn, item) -> dict[str, Any]:
                 "username": row["username"],
                 "display_name": row["display_name"],
                 "best_value": row["best_value"],
-                "base_value": row["best_value"],
-                "tiebreak_value": None,
             }
             for row in sorted_scores
         ],
@@ -653,6 +657,5 @@ def _build_item_payload(conn, item) -> dict[str, Any]:
             "username": latest_roll["username"],
             "display_name": latest_roll["display_name"],
             "value": latest_roll["value"],
-            "tiebreak_round_no": latest_roll["tiebreak_round_no"],
         } if latest_roll else None,
     }

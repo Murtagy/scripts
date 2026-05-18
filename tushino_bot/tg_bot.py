@@ -281,6 +281,15 @@ async def command_app(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text("Открой бота в личке и вызови /app")
 
 
+def _detail_value(details: str | None) -> str | None:
+    if not details:
+        return None
+    for part in details.split(";"):
+        if part.startswith("value="):
+            return part.split("=", 1)[1]
+    return None
+
+
 def format_logs(lines: list[dict]) -> str:
     if not lines:
         return "Лог пуст"
@@ -290,7 +299,6 @@ def format_logs(lines: list[dict]) -> str:
         "delete_item": "удалил слот",
         "roll": "сделал бросок",
         "undo_roll": "отменил бросок",
-        "call_tiebreak": "запустил переброс",
         "call_winner": "подвел итог",
         "reopen_item": "переоткрыл розыгрыш",
         "week_init": "обновил неделю",
@@ -309,8 +317,10 @@ def format_logs(lines: list[dict]) -> str:
             target += f"/{row['item_name']}"
         target = f" {target}" if target else ""
         action_text = action_map.get(row["action"], row["action"])
-        details = f" ({row['details']})" if row.get("action") == "warning_repeat_roll" and row.get("details") else ""
-        out.append(f"{row['created_at']} — {who} {action_text}{target}{details}")
+        value = _detail_value(row.get("details"))
+        if value and row["action"] in {"roll", "warning_repeat_roll"}:
+            action_text = f"{action_text} {value}"
+        out.append(f"{row['created_at']} — {who} {action_text}{target}")
     return "\n".join(out)
 
 
