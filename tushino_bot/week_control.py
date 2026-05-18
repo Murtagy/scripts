@@ -44,8 +44,6 @@ def build_week_text(week: dict) -> str:
                 line = f"- {item['name']}={winner}✅{leader_text}{latest_text}"
             elif item["status"] == "called":
                 line = f"- {item['name']}=✅"
-            elif item["status"] == "tiebreak":
-                line = f"- {item['name']}=переброс{leader_text}{latest_text}"
             else:
                 line = f"- {item['name']}={len(item['scores'])}🎲{leader_text}{latest_text}"
 
@@ -60,6 +58,8 @@ def build_week_keyboard(week: dict) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton("Открыть бота", url=f"https://t.me/{BOT_USERNAME}")])
     for slot in week["slots"]:
         for item in slot["items"]:
+            if item.get("status") != "open":
+                continue
             label = f"{slot['code']}-{item['name']}"
             if len(label) > 24:
                 label = label[:24]
@@ -74,9 +74,7 @@ def build_slot_text(slot: dict) -> str:
     if not slot["items"]:
         return f"{slot['code']}: пусто"
     for item in slot["items"]:
-        if item["status"] == "tiebreak" and item["tied_display_names"]:
-            status = "переброс: " + ", ".join(item["tied_display_names"])
-        elif item["status"] == "called" and item["scores"]:
+        if item["status"] == "called" and item["scores"]:
             top = item["scores"][0]
             status = f"победил {item_display_name(top)} {top['best_value']}✅"
         elif item["scores"]:
@@ -87,8 +85,7 @@ def build_slot_text(slot: dict) -> str:
         for idx, score in enumerate(item["scores"][:3], start=1):
             name = item_display_name(score)
             suffix = "✅" if item["status"] == "called" and idx == 1 else ""
-            tb = f"/{score['tiebreak_value']}" if score['tiebreak_value'] is not None else ""
-            lines.append(f"  {idx}) {name} {score['best_value']}{tb}{suffix}")
+            lines.append(f"  {idx}) {name} {score['best_value']}{suffix}")
         if len(item["scores"]) > 3:
             lines.append(f"  … еще {len(item['scores']) - 3}")
     return "\n".join(lines).strip()

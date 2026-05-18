@@ -108,7 +108,7 @@ function renderTabs() {
 }
 
 function statusLabel(status) {
-  return ({ open: 'открыт', called: 'завершен', tiebreak: 'переброс' }[status] || status);
+  return ({ open: 'открыт', called: 'завершен' }[status] || status);
 }
 
 function scoreList(item) {
@@ -116,16 +116,13 @@ function scoreList(item) {
   const rows = item.scores.map((s, idx) => {
     const name = escapeHtml(s.display_name || s.username);
     const winner = item.status === 'called' && idx === 0 ? ' ✅' : '';
-    const tiebreak = s.tiebreak_value != null ? ` (tb ${s.tiebreak_value})` : '';
-    return `<li>${name} — <b>${s.best_value}</b>${tiebreak}${winner}</li>`;
+    return `<li>${name} — <b>${s.best_value}</b>${winner}</li>`;
   }).join('');
   return `<ol class="score">${rows}</ol>`;
 }
 
 function itemCard(item) {
-  const tieText = item.status === 'tiebreak' && item.tied_display_names.length
-    ? `<div class="muted">Переброс между: ${item.tied_display_names.map(escapeHtml).join(', ')}</div>`
-    : '';
+  const tieText = '';
   return `
     <div class="card">
       <div class="item-header">
@@ -155,7 +152,6 @@ function formatLogLine(row) {
     delete_item: 'удалил слот',
     roll: 'сделал бросок',
     undo_roll: 'отменил бросок',
-    call_tiebreak: 'запустил переброс',
     call_winner: 'подвел итог',
     reopen_item: 'переоткрыл розыгрыш',
     week_init: 'обновил неделю',
@@ -241,7 +237,7 @@ async function undoRoll(itemId) {
 async function callItem(itemId) {
   try {
     const item = await api(`/api/items/${itemId}/call`, { method: 'POST' });
-    msg(item.call_result === 'tiebreak' ? 'Ничья. Нужен переброс.' : (item.manual_call ? 'Слот помечен как занятый.' : 'Победитель определен.'));
+    msg(item.manual_call ? 'Слот помечен как занятый.' : 'Победитель определен.');
     await reloadWeek();
   } catch (e) {
     msg(e.message);

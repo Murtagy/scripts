@@ -1,5 +1,4 @@
 import datetime as dt
-import json
 import random
 from typing import Any
 
@@ -244,11 +243,22 @@ def _get_item_row(conn, item_id: int):
     return item
 
 
+def _get_latest_competition(conn, item_id: int):
+    return conn.execute(
+        """
+        SELECT * FROM item_competitions
+        WHERE item_id = ?
+        ORDER BY round_no DESC LIMIT 1
+        """,
+        (item_id,),
+    ).fetchone()
+
+
 def _get_open_competition(conn, item_id: int):
     return conn.execute(
         """
         SELECT * FROM item_competitions
-        WHERE item_id = ? AND status IN ('open', 'tiebreak')
+        WHERE item_id = ? AND status = 'open'
         ORDER BY round_no DESC LIMIT 1
         """,
         (item_id,),
@@ -272,25 +282,20 @@ def roll_for_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
         item = _get_item_row(conn, item_id)
         comp = _get_open_competition(conn, item_id)
         if comp is None:
+            latest = _get_latest_competition(conn, item_id)
+            if latest is not None:
+                raise ConflictError("Розыгрыш уже завершен")
             comp_id = _create_competition(conn, item_id)
             comp = conn.execute("SELECT * FROM item_competitions WHERE id = ?", (comp_id,)).fetchone()
-
-        tiebreak_round_no = 0
-        allowed_user_ids = set()
-        if comp["status"] == "tiebreak":
-            tiebreak_round_no = 1
-            allowed_user_ids = set(json.loads(comp["tiebreak_user_ids"] or "[]"))
-            if user["user_id"] not in allowed_user_ids:
-                raise ConflictError("Only tied users can roll now")
 
         existing = conn.execute(
             """
             SELECT 1 FROM rolls
-            WHERE competition_id = ? AND user_id = ? AND tiebreak_round_no = ?
+            WHERE competition_id = ? AND user_id = ? AND tiebreak_round_no = 0
             """,
-            (comp["id"], user["user_id"], tiebreak_round_no),
+            (comp["id"], user["user_id"]),
         ).fetchone()
-        is_repeat_base_roll = tiebreak_round_no == 0 and has_previous_base_roll(conn, item["week_id"], user["user_id"], item_id)
+        is_repeat_base_roll = has_previous_base_roll(conn, item["week_id"], user["user_id"], item_id)
         if existing:
             raise ConflictError("User already rolled for this item")
 
@@ -298,7 +303,7 @@ def roll_for_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
         conn.execute(
             """
             INSERT INTO rolls (competition_id, user_id, username, display_name, value, tiebreak_round_no)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, 0)
             """,
             (
                 comp["id"],
@@ -306,7 +311,6 @@ def roll_for_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
                 user.get("username"),
                 user.get("display_name") or user.get("username") or str(user["user_id"]),
                 value,
-                tiebreak_round_no,
             ),
         )
         conn.commit()
@@ -317,97 +321,118 @@ def roll_for_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
             "username": user.get("username"),
             "display_name": user.get("display_name"),
         }
-        log_action("roll", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details=f"value={value};tiebreak_round_no={tiebreak_round_no}")
+        log_action("roll", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details=f"value={value};tiebreak_round_no=0")
         if is_repeat_base_roll:
             log_action("warning_repeat_roll", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details=f"value={value}")
         return payload
 
 
-def call_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
-    with get_conn() as conn:
-        item = _get_item_row(conn, item_id)
-        comp = _get_open_competition(conn, item_id)
-        if comp is None:
-            comp_id = _create_competition(conn, item_id)
-            comp = conn.execute("SELECT * FROM item_competitions WHERE id = ?", (comp_id,)).fetchone()
+def _finalize_item_competition(conn, item_id: int, user: dict[str, Any] | None, auto: bool = False) -> dict[str, Any]:
+    item = _get_item_row(conn, item_id)
+    comp = _get_latest_competition(conn, item_id)
+    if comp is None:
+        comp_id = _create_competition(conn, item_id)
+        comp = conn.execute("SELECT * FROM item_competitions WHERE id = ?", (comp_id,)).fetchone()
+    elif comp["status"] == "called":
+        raise ConflictError("Розыгрыш уже завершен")
 
-        tiebreak_round_no = 1 if comp["status"] == "tiebreak" else 0
-        rolls = conn.execute(
-            """
-            SELECT * FROM rolls
-            WHERE competition_id = ? AND tiebreak_round_no = ?
-            ORDER BY value DESC, created_at ASC
-            """,
-            (comp["id"], tiebreak_round_no),
-        ).fetchall()
-        if not rolls:
-            conn.execute(
-                """
-                UPDATE item_competitions
-                SET status = 'called',
-                    called_by_user_id = ?,
-                    called_by_username = ?,
-                    called_at = CURRENT_TIMESTAMP,
-                    tiebreak_user_ids = NULL
-                WHERE id = ?
-                """,
-                (user.get("user_id"), user.get("username"), comp["id"]),
-            )
-            conn.commit()
-            payload = _build_item_payload(conn, item)
-            payload["call_result"] = "winner"
-            payload["manual_call"] = True
-            log_action("call_winner", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details="manual_without_rolls=1")
-            return payload
+    rolls = conn.execute(
+        """
+        SELECT * FROM rolls
+        WHERE competition_id = ? AND tiebreak_round_no = 0
+        ORDER BY value DESC, created_at ASC, id ASC
+        """,
+        (comp["id"],),
+    ).fetchall()
 
+    winner = None
+    tie_count = 0
+    if rolls:
         top_value = rolls[0]["value"]
         tied = [r for r in rolls if r["value"] == top_value]
-        if len(tied) > 1:
-            conn.execute(
-                "UPDATE item_competitions SET status = 'tiebreak', tiebreak_user_ids = ? WHERE id = ?",
-                (json.dumps([r["user_id"] for r in tied]), comp["id"]),
-            )
-            conn.commit()
-            payload = _build_item_payload(conn, item)
-            payload["call_result"] = "tiebreak"
-            log_action("call_tiebreak", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details=f"top_value={top_value}")
-            payload["tied_users"] = [
-                {
-                    "user_id": r["user_id"],
-                    "username": r["username"],
-                    "display_name": r["display_name"],
-                    "value": r["value"],
-                }
-                for r in tied
-            ]
-            return payload
+        tie_count = len(tied)
+        winner = random.choice(tied)
 
-        winner = rolls[0]
-        conn.execute(
+    caller = user or {"user_id": None, "username": None, "display_name": "system"}
+    conn.execute(
+        """
+        UPDATE item_competitions
+        SET status = 'called',
+            winner_user_id = ?,
+            winner_username = ?,
+            called_by_user_id = ?,
+            called_by_username = ?,
+            called_at = CURRENT_TIMESTAMP,
+            tiebreak_user_ids = NULL
+        WHERE id = ?
+        """,
+        (
+            winner["user_id"] if winner else None,
+            winner["username"] if winner else None,
+            caller.get("user_id"),
+            caller.get("username"),
+            comp["id"],
+        ),
+    )
+    conn.commit()
+    payload = _build_item_payload(conn, item)
+    payload["call_result"] = "winner"
+    payload["auto_call"] = auto
+    if winner:
+        log_action(
+            "call_winner",
+            user=caller if user else None,
+            week_id=item["week_id"],
+            slot_code=item["slot_code"],
+            item_id=item_id,
+            item_name=item["name"],
+            details=f"winner_user_id={winner['user_id']};value={winner['value']};tied_count={tie_count};auto={int(auto)}",
+        )
+    else:
+        log_action(
+            "call_winner",
+            user=caller if user else None,
+            week_id=item["week_id"],
+            slot_code=item["slot_code"],
+            item_id=item_id,
+            item_name=item["name"],
+            details=f"manual_without_rolls=1;auto={int(auto)}",
+        )
+    return payload
+
+
+def call_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
+    with get_conn() as conn:
+        return _finalize_item_competition(conn, item_id, user, auto=False)
+
+
+def auto_close_open_items(user: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    results = []
+    with get_conn() as conn:
+        rows = conn.execute(
             """
-            UPDATE item_competitions
-            SET status = 'called',
-                winner_user_id = ?,
-                winner_username = ?,
-                called_by_user_id = ?,
-                called_by_username = ?,
-                called_at = CURRENT_TIMESTAMP,
-                tiebreak_user_ids = NULL
-            WHERE id = ?
-            """,
-            (
-                winner["user_id"],
-                winner["username"],
-                user.get("user_id"),
-                user.get("username"),
-                comp["id"],
-            ),
+            SELECT i.id
+            FROM items i
+            JOIN slots s ON s.id = i.slot_id
+            JOIN weeks w ON w.id = s.week_id
+            JOIN item_competitions c ON c.item_id = i.id
+            WHERE w.active = 1 AND i.active = 1 AND c.status = 'open'
+            GROUP BY i.id
+            ORDER BY i.id ASC
+            """
+        ).fetchall()
+        for row in rows:
+            results.append(_finalize_item_competition(conn, row["id"], user, auto=True))
+    return results
+
+
+def normalize_competitions() -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE item_competitions SET status = 'open', tiebreak_user_ids = NULL WHERE status = 'tiebreak'"
         )
         conn.commit()
-        payload = _build_item_payload(conn, item)
-        payload["call_result"] = "winner"
-        log_action("call_winner", user=user, week_id=item["week_id"], slot_code=item["slot_code"], item_id=item_id, item_name=item["name"], details=f"winner_user_id={winner['user_id']};value={winner['value']}")
-        return payload
+        return cur.rowcount
 
 
 def reopen_item(item_id: int, user: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -572,10 +597,7 @@ def _build_item_payload(conn, item) -> dict[str, Any]:
     if current is not None:
         score_rows = conn.execute(
             """
-            SELECT user_id, username, display_name,
-                   MAX(value) AS best_value,
-                   MAX(CASE WHEN tiebreak_round_no = 0 THEN value END) AS base_value,
-                   MAX(CASE WHEN tiebreak_round_no = 1 THEN value END) AS tiebreak_value
+            SELECT user_id, username, display_name, MAX(value) AS best_value
             FROM rolls
             WHERE competition_id = ?
             GROUP BY user_id, username, display_name
@@ -593,23 +615,14 @@ def _build_item_payload(conn, item) -> dict[str, Any]:
             (current["id"],),
         ).fetchone()
 
-    has_tiebreak_scores = any(row["tiebreak_value"] is not None for row in score_rows)
+    winner_user_id = current["winner_user_id"] if current else None
     sorted_scores = sorted(
         score_rows,
-        key=lambda row: (
-            row["tiebreak_value"] if has_tiebreak_scores and row["tiebreak_value"] is not None else row["base_value"] or 0,
-            row["base_value"] or 0,
-            -row["user_id"],
-        ),
+        key=lambda row: (row["user_id"] == winner_user_id, row["best_value"] or 0, -row["user_id"]),
         reverse=True,
     )
-    tied_user_ids = json.loads(current["tiebreak_user_ids"] or "[]") if current and current["tiebreak_user_ids"] else []
-    by_user_id = {row["user_id"]: row for row in sorted_scores}
-    tied_display_names = [
-        (by_user_id[user_id]["display_name"] or by_user_id[user_id]["username"])
-        for user_id in tied_user_ids
-        if user_id in by_user_id
-    ]
+    tied_user_ids = []
+    tied_display_names = []
 
     return {
         "id": item["id"],
@@ -629,9 +642,9 @@ def _build_item_payload(conn, item) -> dict[str, Any]:
                 "user_id": row["user_id"],
                 "username": row["username"],
                 "display_name": row["display_name"],
-                "best_value": row["tiebreak_value"] if has_tiebreak_scores and row["tiebreak_value"] is not None else row["best_value"],
-                "base_value": row["base_value"],
-                "tiebreak_value": row["tiebreak_value"],
+                "best_value": row["best_value"],
+                "base_value": row["best_value"],
+                "tiebreak_value": None,
             }
             for row in sorted_scores
         ],

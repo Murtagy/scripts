@@ -199,6 +199,16 @@ async def create_poll(context: ContextTypes.DEFAULT_TYPE) -> None:
     await message.pin()
 
 
+async def close_slots_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    now = datetime.datetime.now(TZ)
+    if now.weekday() != 3:
+        return
+    closed = slots_service.auto_close_open_items()
+    if closed:
+        await week_control.upsert_week_control_message(context.bot)
+        await context.bot.send_message(CHAT_ID, f"Итоги закрыты: {len(closed)} слот(ов)", message_thread_id=THREAD_ID)
+
+
 async def init_week_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     now = datetime.datetime.now(TZ)
     if now.weekday() != 0:
@@ -489,7 +499,12 @@ async def any_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 def main() -> None:
     init_db()
+    slots_service.normalize_competitions()
     slots_service.create_or_get_active_week()
+    now = datetime.datetime.now(TZ)
+    if now.weekday() == 3 and (now.hour, now.minute) >= (9, 30):
+        slots_service.auto_close_open_items()
+        week_control.refresh_week_control_sync()
     start_web_server()
 
     application = Application.builder().token(TOKEN).build()
@@ -505,6 +520,7 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, any_message))
 
     application.job_queue.run_repeating(create_poll, interval=60 * 60 * 24, first=get_scheduled_time(9, 0))
+    application.job_queue.run_repeating(close_slots_job, interval=60 * 60 * 24, first=get_scheduled_time(9, 30))
     application.job_queue.run_repeating(init_week_job, interval=60 * 60 * 24, first=get_scheduled_time(9, 5))
     application.job_queue.run_repeating(refresh_week_job, interval=60 * 5, first=10)
     application.job_queue.run_repeating(report_frags, interval=60 * 60, first=5)
