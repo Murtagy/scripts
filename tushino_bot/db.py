@@ -5,6 +5,43 @@ from contextlib import contextmanager
 DB_PATH = os.environ.get("BOT_DB_PATH", "bot.sqlite3")
 
 
+def _table_columns(conn, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _migrate_rolls_table(conn) -> None:
+    cols = _table_columns(conn, "rolls")
+    if not cols or "tiebreak_round_no" not in cols:
+        return
+    conn.execute("PRAGMA foreign_keys=OFF")
+    conn.executescript(
+        """
+        DROP TABLE IF EXISTS rolls_new;
+
+        CREATE TABLE IF NOT EXISTS rolls_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            competition_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            username TEXT,
+            display_name TEXT NOT NULL,
+            value INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(competition_id, user_id),
+            FOREIGN KEY(competition_id) REFERENCES item_competitions(id)
+        );
+
+        INSERT OR REPLACE INTO rolls_new (id, competition_id, user_id, username, display_name, value, created_at)
+        SELECT id, competition_id, user_id, username, display_name, value, created_at
+        FROM rolls
+        ORDER BY id ASC;
+
+        DROP TABLE rolls;
+        ALTER TABLE rolls_new RENAME TO rolls;
+        """
+    )
+    conn.execute("PRAGMA foreign_keys=ON")
+
+
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(
@@ -61,9 +98,8 @@ def init_db() -> None:
                 username TEXT,
                 display_name TEXT NOT NULL,
                 value INTEGER NOT NULL,
-                tiebreak_round_no INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(competition_id, user_id, tiebreak_round_no),
+                UNIQUE(competition_id, user_id),
                 FOREIGN KEY(competition_id) REFERENCES item_competitions(id)
             );
 
@@ -95,6 +131,7 @@ def init_db() -> None:
             );
             """
         )
+        _migrate_rolls_table(conn)
         conn.commit()
 
 

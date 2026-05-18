@@ -294,7 +294,7 @@ def roll_for_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
         existing = conn.execute(
             """
             SELECT 1 FROM rolls
-            WHERE competition_id = ? AND user_id = ? AND tiebreak_round_no = 0
+            WHERE competition_id = ? AND user_id = ?
             """,
             (comp["id"], user["user_id"]),
         ).fetchone()
@@ -305,8 +305,8 @@ def roll_for_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
         value = random.randint(1, 6)
         conn.execute(
             """
-            INSERT INTO rolls (competition_id, user_id, username, display_name, value, tiebreak_round_no)
-            VALUES (?, ?, ?, ?, ?, 0)
+            INSERT INTO rolls (competition_id, user_id, username, display_name, value)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
                 comp["id"],
@@ -342,7 +342,7 @@ def _finalize_item_competition(conn, item_id: int, user: dict[str, Any] | None, 
     rolls = conn.execute(
         """
         SELECT * FROM rolls
-        WHERE competition_id = ? AND tiebreak_round_no = 0
+        WHERE competition_id = ?
         ORDER BY value DESC, created_at ASC, id ASC
         """,
         (comp["id"],),
