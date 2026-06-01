@@ -299,6 +299,8 @@ def format_logs(lines: list[dict]) -> str:
         "delete_item": "удалил слот",
         "roll": "сделал бросок",
         "undo_roll": "отменил бросок",
+        "withdraw_item": "снялся со слота",
+        "recalc_winner": "переразыграл слот",
         "call_winner": "подвел итог",
         "reopen_item": "переоткрыл розыгрыш",
         "week_init": "обновил неделю",

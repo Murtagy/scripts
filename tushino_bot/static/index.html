@@ -59,6 +59,7 @@ tg.ready();
 tg.expand();
 
 let state = { week: null, activeSlot: 'пт1' };
+const currentUserId = tg.initDataUnsafe?.user?.id || null;
 
 function msg(text) {
   document.getElementById('msg').textContent = text || '';
@@ -121,8 +122,12 @@ function scoreList(item) {
   return `<ol class="score">${rows}</ol>`;
 }
 
+function canWithdraw(item) {
+  return item.status === 'called' && currentUserId && item.scores.some(s => s.user_id === currentUserId);
+}
+
 function itemCard(item) {
-  const tieText = '';
+  const withdrawBtn = canWithdraw(item) ? `<button class="secondary" onclick="withdrawItem(${item.id})">Сняться</button>` : '';
   return `
     <div class="card">
       <div class="item-header">
@@ -133,12 +138,12 @@ function itemCard(item) {
         <div class="row">
           <button onclick="rollItem(${item.id})">Бросок</button>
           <button class="secondary" onclick="undoRoll(${item.id})">Отменить бросок</button>
+          ${withdrawBtn}
           <button class="secondary" onclick="callItem(${item.id})">Подвести итог</button>
           <button class="secondary" onclick="reopenItem(${item.id})">Переоткрыть</button>
           <button class="danger" onclick="deleteItem(${item.id})">Удалить</button>
         </div>
       </div>
-      ${tieText}
       ${scoreList(item)}
     </div>
   `;
@@ -152,6 +157,8 @@ function formatLogLine(row) {
     delete_item: 'удалил слот',
     roll: 'сделал бросок',
     undo_roll: 'отменил бросок',
+    withdraw_item: 'снялся со слота',
+    recalc_winner: 'переразыграл слот',
     call_winner: 'подвел итог',
     reopen_item: 'переоткрыл розыгрыш',
     week_init: 'обновил неделю',
@@ -249,6 +256,16 @@ async function callItem(itemId) {
   }
 }
 
+async function withdrawItem(itemId) {
+  try {
+    await api(`/api/items/${itemId}/withdraw`, { method: 'POST' });
+    msg('Снялся со слота');
+    await reloadWeek();
+  } catch (e) {
+    msg(e.message);
+  }
+}
+
 async function reopenItem(itemId) {
   try {
     await api(`/api/items/${itemId}/reopen`, { method: 'POST' });
@@ -281,6 +298,7 @@ reloadWeek().catch(e => msg(e.message));
 window.rollItem = rollItem;
 window.undoRoll = undoRoll;
 window.callItem = callItem;
+window.withdrawItem = withdrawItem;
 window.reopenItem = reopenItem;
 window.deleteItem = deleteItem;
 </script>

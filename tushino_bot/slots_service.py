@@ -330,6 +330,14 @@ def roll_for_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
         return payload
 
 
+def _choose_winner_from_rolls(rolls: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, int]:
+    if not rolls:
+        return None, 0
+    top_value = rolls[0]["value"]
+    tied = [r for r in rolls if r["value"] == top_value]
+    return random.choice(tied), len(tied)
+
+
 def _finalize_item_competition(conn, item_id: int, user: dict[str, Any] | None, auto: bool = False) -> dict[str, Any]:
     item = _get_item_row(conn, item_id)
     comp = _get_latest_competition(conn, item_id)
@@ -348,13 +356,7 @@ def _finalize_item_competition(conn, item_id: int, user: dict[str, Any] | None, 
         (comp["id"],),
     ).fetchall()
 
-    winner = None
-    tie_count = 0
-    if rolls:
-        top_value = rolls[0]["value"]
-        tied = [r for r in rolls if r["value"] == top_value]
-        tie_count = len(tied)
-        winner = random.choice(tied)
+    winner, tie_count = _choose_winner_from_rolls(rolls)
 
     caller = user or {"user_id": None, "username": None, "display_name": "system"}
     conn.execute(
@@ -529,6 +531,89 @@ def undo_item_roll(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
             item_name=row["item_name"],
             details=f"deleted_roll_id={row['id']};value={row['value']}",
         )
+        return payload
+
+
+def withdraw_from_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
+    with get_conn() as conn:
+        item = _get_item_row(conn, item_id)
+        comp = _get_latest_competition(conn, item_id)
+        if comp is None or comp["status"] != "called":
+            raise ConflictError("Сняться можно только после подведения итога")
+
+        row = conn.execute(
+            """
+            SELECT * FROM rolls
+            WHERE competition_id = ? AND user_id = ?
+            """,
+            (comp["id"], user["user_id"]),
+        ).fetchone()
+        if row is None:
+            raise NotFoundError("Твой бросок не найден")
+
+        conn.execute("DELETE FROM rolls WHERE id = ?", (row["id"],))
+
+        remaining = conn.execute(
+            """
+            SELECT * FROM rolls
+            WHERE competition_id = ?
+            ORDER BY value DESC, created_at ASC, id ASC
+            """,
+            (comp["id"],),
+        ).fetchall()
+
+        if remaining:
+            winner, tie_count = _choose_winner_from_rolls(remaining)
+            conn.execute(
+                """
+                UPDATE item_competitions
+                SET status = 'called',
+                    winner_user_id = ?,
+                    winner_username = ?
+                WHERE id = ?
+                """,
+                (winner["user_id"] if winner else None, winner["username"] if winner else None, comp["id"]),
+            )
+            result_state = "called"
+        else:
+            conn.execute(
+                """
+                UPDATE item_competitions
+                SET status = 'open',
+                    winner_user_id = NULL,
+                    winner_username = NULL
+                WHERE id = ?
+                """,
+                (comp["id"],),
+            )
+            winner = None
+            tie_count = 0
+            result_state = "open"
+
+        conn.commit()
+        payload = _build_item_payload(conn, item)
+        details = f"deleted_roll_id={row['id']};value={row['value']};remaining={len(remaining)};result_state={result_state}"
+        if winner:
+            details += f";new_winner_user_id={winner['user_id']};new_value={winner['value']};tied_count={tie_count}"
+        log_action(
+            "withdraw_item",
+            user=user,
+            week_id=item["week_id"],
+            slot_code=item["slot_code"],
+            item_id=item_id,
+            item_name=item["name"],
+            details=details,
+        )
+        if winner:
+            log_action(
+                "recalc_winner",
+                user=user,
+                week_id=item["week_id"],
+                slot_code=item["slot_code"],
+                item_id=item_id,
+                item_name=item["name"],
+                details=f"winner_user_id={winner['user_id']};value={winner['value']};tied_count={tie_count};reason=withdraw",
+            )
         return payload
 
 

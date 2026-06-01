@@ -16,6 +16,22 @@ def item_display_name(score: dict) -> str:
     return score["display_name"] or score["username"] or str(score["user_id"])
 
 
+def _leader_scores(scores: list[dict]) -> list[dict]:
+    if not scores:
+        return []
+    top_value = scores[0]["best_value"]
+    return [score for score in scores if score["best_value"] == top_value]
+
+
+def _leader_text(scores: list[dict]) -> str:
+    leaders = _leader_scores(scores)
+    if not leaders:
+        return ""
+    prefix = "лидер" if len(leaders) == 1 else "лидеры"
+    parts = [f"{item_display_name(score)} {score['best_value']}" for score in leaders]
+    return f", {prefix} - {', '.join(parts)}"
+
+
 def build_week_text(week: dict) -> str:
     lines = [f"Неделя {week['week_key']}", ""]
     for slot in week["slots"]:
@@ -26,25 +42,19 @@ def build_week_text(week: dict) -> str:
             continue
 
         for item in slot["items"]:
-            latest_roll = item.get("latest_roll")
-            leader_text = ""
-            if item["scores"]:
-                top = item["scores"][0]
-                top_name = top["display_name"] or top["username"]
-                leader_text = f", лидер - {top_name} {top['best_value']}"
-
-            latest_text = ""
-            if latest_roll:
-                latest_name = latest_roll["display_name"] or latest_roll["username"]
-                latest_text = f", посл бросок - {latest_name} {latest_roll['value']}"
-
             if item["status"] == "called" and item["scores"]:
                 top = item["scores"][0]
-                winner = top["display_name"] or top["username"]
-                line = f"- {item['name']}={winner}✅{leader_text}{latest_text}"
+                winner = item_display_name(top)
+                line = f"- {item['name']}={winner}✅"
             elif item["status"] == "called":
                 line = f"- {item['name']}=✅"
             else:
+                latest_roll = item.get("latest_roll")
+                leader_text = _leader_text(item["scores"])
+                latest_text = ""
+                if latest_roll:
+                    latest_name = latest_roll["display_name"] or latest_roll["username"]
+                    latest_text = f", посл бросок - {latest_name} {latest_roll['value']}"
                 line = f"- {item['name']}={len(item['scores'])}🎲{leader_text}{latest_text}"
 
             lines.append(line)
@@ -78,7 +88,12 @@ def build_slot_text(slot: dict) -> str:
             top = item["scores"][0]
             status = f"победил {item_display_name(top)} {top['best_value']}✅"
         elif item["scores"]:
-            status = f"{len(item['scores'])} брос."
+            leaders = _leader_scores(item["scores"])
+            if len(leaders) > 1:
+                joined = ", ".join(f"{item_display_name(score)} {score['best_value']}" for score in leaders)
+                status = f"{len(item['scores'])} брос., лидеры: {joined}"
+            else:
+                status = f"{len(item['scores'])} брос."
         else:
             status = "без бросков"
         lines.append(f"• {item['name']} — {status}")
