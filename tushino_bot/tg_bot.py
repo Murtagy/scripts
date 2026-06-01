@@ -290,6 +290,17 @@ def _detail_value(details: str | None) -> str | None:
     return None
 
 
+def _details_map(details: str | None) -> dict[str, str]:
+    out = {}
+    if not details:
+        return out
+    for part in details.split(";"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            out[k] = v
+    return out
+
+
 def format_logs(lines: list[dict]) -> str:
     if not lines:
         return "Лог пуст"
@@ -319,9 +330,29 @@ def format_logs(lines: list[dict]) -> str:
             target += f"/{row['item_name']}"
         target = f" {target}" if target else ""
         action_text = action_map.get(row["action"], row["action"])
-        value = _detail_value(row.get("details"))
+        details = _details_map(row.get("details"))
+        value = details.get("value") or _detail_value(row.get("details"))
         if value and row["action"] in {"roll", "warning_repeat_roll"}:
             action_text = f"{action_text} {value}"
+        if row["action"] in {"withdraw_item", "recalc_winner"}:
+            removed = details.get("removed_name")
+            removed_value = details.get("removed_value")
+            new_winner = details.get("new_winner_name")
+            new_value = details.get("new_value")
+            extra = []
+            if removed:
+                extra.append(f"убрал {removed} {removed_value}".strip())
+            if new_winner:
+                extra.append(f"новый победитель {new_winner} {new_value}".strip())
+            elif details.get("result_state") == "open":
+                extra.append("слот снова открыт")
+            if extra:
+                action_text = f"{action_text}: {'; '.join(extra)}"
+        elif row["action"] == "call_winner":
+            winner = details.get("winner_name")
+            winner_value = details.get("value")
+            if winner:
+                action_text = f"{action_text}: победитель {winner} {winner_value}".strip()
         out.append(f"{row['created_at']} — {who} {action_text}{target}")
     return "\n".join(out)
 

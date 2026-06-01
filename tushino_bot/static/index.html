@@ -149,6 +149,16 @@ function itemCard(item) {
   `;
 }
 
+function detailsMap(details) {
+  const out = {};
+  if (!details) return out;
+  for (const part of String(details).split(';')) {
+    const idx = part.indexOf('=');
+    if (idx > 0) out[part.slice(0, idx)] = part.slice(idx + 1);
+  }
+  return out;
+}
+
 function formatLogLine(row) {
   const who = escapeHtml(row.display_name || row.username || 'system');
   const target = [row.slot_code, row.item_name].filter(Boolean).join('/');
@@ -167,10 +177,19 @@ function formatLogLine(row) {
     warning_repeat_roll: '🚨 ВНИМАНИЕ! сделал повторный бросок',
   };
   let action = actionMap[row.action] || row.action;
-  const details = row.details || '';
-  const value = (details.match(/(?:^|;)value=([^;]+)/) || [null, null])[1];
+  const details = detailsMap(row.details);
+  const value = details.value || (String(row.details || '').match(/(?:^|;)value=([^;]+)/) || [null, null])[1];
   if (value && (row.action === 'roll' || row.action === 'warning_repeat_roll')) {
     action += ` ${value}`;
+  }
+  if (row.action === 'withdraw_item' || row.action === 'recalc_winner') {
+    const extra = [];
+    if (details.removed_name) extra.push(`убрал ${details.removed_name} ${details.removed_value || ''}`.trim());
+    if (details.new_winner_name) extra.push(`новый победитель ${details.new_winner_name} ${details.new_value || ''}`.trim());
+    else if (details.result_state === 'open') extra.push('слот снова открыт');
+    if (extra.length) action += `: ${extra.join('; ')}`;
+  } else if (row.action === 'call_winner' && details.winner_name) {
+    action += `: победитель ${details.winner_name} ${details.value || ''}`.trim();
   }
   return `${escapeHtml(row.created_at)} — ${who} ${escapeHtml(action)}${target ? ' ' + escapeHtml(target) : ''}`;
 }

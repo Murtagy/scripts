@@ -392,7 +392,7 @@ def _finalize_item_competition(conn, item_id: int, user: dict[str, Any] | None, 
             slot_code=item["slot_code"],
             item_id=item_id,
             item_name=item["name"],
-            details=f"winner_user_id={winner['user_id']};value={winner['value']};tied_count={tie_count};auto={int(auto)}",
+            details=f"winner_user_id={winner['user_id']};winner_name={winner['display_name'] or winner['username'] or winner['user_id']};value={winner['value']};tied_count={tie_count};auto={int(auto)}",
         )
     else:
         log_action(
@@ -592,9 +592,11 @@ def withdraw_from_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
 
         conn.commit()
         payload = _build_item_payload(conn, item)
-        details = f"deleted_roll_id={row['id']};value={row['value']};remaining={len(remaining)};result_state={result_state}"
+        removed_name = row["display_name"] or row["username"] or str(row["user_id"])
+        details = f"removed_user_id={row['user_id']};removed_name={removed_name};removed_value={row['value']};remaining={len(remaining)};result_state={result_state}"
         if winner:
-            details += f";new_winner_user_id={winner['user_id']};new_value={winner['value']};tied_count={tie_count}"
+            winner_name = winner["display_name"] or winner["username"] or str(winner["user_id"])
+            details += f";new_winner_user_id={winner['user_id']};new_winner_name={winner_name};new_value={winner['value']};tied_count={tie_count}"
         log_action(
             "withdraw_item",
             user=user,
@@ -612,7 +614,7 @@ def withdraw_from_item(item_id: int, user: dict[str, Any]) -> dict[str, Any]:
                 slot_code=item["slot_code"],
                 item_id=item_id,
                 item_name=item["name"],
-                details=f"winner_user_id={winner['user_id']};value={winner['value']};tied_count={tie_count};reason=withdraw",
+                details=f"winner_user_id={winner['user_id']};winner_name={winner['display_name'] or winner['username'] or winner['user_id']};value={winner['value']};tied_count={tie_count};reason=withdraw",
             )
         return payload
 
