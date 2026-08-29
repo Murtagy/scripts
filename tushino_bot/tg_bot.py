@@ -56,6 +56,7 @@ ADMIN_USER_IDS = {
 ALLOWED_MEMBER_STATUSES = {"creator", "administrator", "member", "restricted", "owner"}
 
 chat = None
+replay_report_lock = asyncio.Lock()
 if AI_KEY:
     from google import genai
 
@@ -223,38 +224,75 @@ async def refresh_week_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning("Week refresh failed: %s", exc)
 
 
+def split_telegram_message(text: str, limit: int = 4000) -> list[str]:
+    """Split report on lines, below Telegram's 4096-character limit."""
+    chunks: list[str] = []
+    current = ""
+    for line in text.splitlines():
+        if len(line) > limit:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.extend(line[i:i + limit] for i in range(0, len(line), limit))
+            continue
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > limit:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def format_frag_report(frags: list[replays.Frag]) -> str:
+    message_lines: list[str] = []
+    by_game = defaultdict(list)
+    for frag in frags:
+        by_game[frag.mission].append(frag)
+
+    for mission, game_frags in by_game.items():
+        message_lines.append(f"Игра {mission}:")
+        message_lines.extend(" " + str(frag) for frag in game_frags)
+        message_lines.extend(["", ""])
+    return "\n".join(message_lines)
+
+
 async def report_frags(context: ContextTypes.DEFAULT_TYPE) -> None:
     now = datetime.datetime.now(TZ)
     if 21 <= now.hour <= 23:
         return
-    new_frags, _parsed_games = replays.collect_new_frags()
-    new_frags = [f for f in new_frags if ("[DER]" in f.killer or "[DER_c]" in f.killer)]
-    if not new_frags:
-        return
 
-    message_lines: list[str] = []
-    by_game = defaultdict(list)
-    for frag in new_frags:
-        by_game[frag.mission].append(frag)
+    async with replay_report_lock:
+        new_frags, parsed_games = await asyncio.to_thread(replays.collect_new_frags)
+        if not parsed_games:
+            return
 
-    for mission, frags in by_game.items():
-        message_lines.append(f"Игра {mission}:")
-        for frag in frags:
-            message_lines.append(" " + str(frag))
-        message_lines.extend(["", ""])
-
-    payload = "\n".join(message_lines)
-    await context.bot.send_message(CHAT_ID, payload)
-    if chat is not None:
+        new_frags = [f for f in new_frags if "[DER]" in f.killer or "[DER_c]" in f.killer]
+        payload = format_frag_report(new_frags)
         try:
-            response = (
-                await chat.send_message(
-                    "Вот фраги с последней игры, прокомментируй. Если там больше 4 - будь позитивен пожалуйста, это хороший результат:" + payload
-                )
-            ).text
-            await context.bot.send_message(CHAT_ID, response)
-        except Exception as exc:
-            logger.warning("AI commentary failed: %s", exc)
+            for chunk in split_telegram_message(payload):
+                await context.bot.send_message(CHAT_ID, chunk, message_thread_id=THREAD_ID)
+        except Exception:
+            logger.exception("Failed to deliver replay report")
+            return
+
+        try:
+            await asyncio.to_thread(replays.mark_replays_processed, parsed_games)
+        except Exception:
+            logger.exception("Replay report delivered but state was not saved")
+
+        if payload and chat is not None:
+            try:
+                response = (
+                    await chat.send_message(
+                        "Вот фраги с последней игры, прокомментируй. Если там больше 4 - будь позитивен пожалуйста, это хороший результат:" + payload
+                    )
+                ).text
+                await context.bot.send_message(CHAT_ID, response, message_thread_id=THREAD_ID)
+            except Exception as exc:
+                logger.warning("AI commentary failed: %s", exc)
 
 
 async def command_app(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

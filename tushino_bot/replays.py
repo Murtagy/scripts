@@ -1,13 +1,17 @@
+import datetime
 import json
 import logging
-import datetime
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Sequence
 
 import requests
 
 logger = logging.getLogger(__name__)
 REPLAY_BASE_URL = "https://replay.tsgames.ru/rv"
+STATE_FILE = Path(__file__).with_name("parsed_replays.json")
+# T2 and T3 game servers, limited to TSG replays.
+REPLAY_FILTERS = (2, 3, 10)
 
 
 @dataclass
@@ -37,8 +41,12 @@ class Replay:
 def get_frags(url: str, mission: str) -> list[Frag]:
     frags = []
 
-    get_replay = requests.get(url, timeout=20)
-    replay = json.loads(json.loads(get_replay.content)['json'])
+    get_replay = requests.get(url, timeout=(10, 120))
+    get_replay.raise_for_status()
+    payload = get_replay.json()
+    if payload.get("error"):
+        raise RuntimeError(f"Replay server error: {payload['error']}")
+    replay = json.loads(payload['json'])
     players_list = replay[1][1]
     players_dict = {}  # id: name
     side_dict = {}
@@ -86,20 +94,18 @@ def frag_print(url, squad):
             print(frag)
 
 
-def _list_replays_page(offset: int = 0) -> dict:
-    r = requests.get(
-        f"{REPLAY_BASE_URL}/ajax.php",
-        params={
-            "a": "l",
-            "params[offset]": offset,
-            "params[f][0]": 3,
-            "params[f][1]": 10,
-            "params[f][2]": "20:202605",
-        },
-        timeout=20,
-    )
+def _list_replays_page(offset: int = 0, today: datetime.date | None = None) -> dict:
+    today = today or datetime.date.today()
+    filters = [*REPLAY_FILTERS, f"20:{today:%Y%m}"]
+    params = {"a": "l", "params[offset]": offset}
+    params.update({f"params[f][{i}]": value for i, value in enumerate(filters)})
+
+    r = requests.get(f"{REPLAY_BASE_URL}/ajax.php", params=params, timeout=(10, 30))
     r.raise_for_status()
-    return r.json()
+    payload = r.json()
+    if payload.get("error"):
+        raise RuntimeError(f"Replay server error: {payload['error']}")
+    return payload
 
 
 def get_new_replays(known_names: Sequence[str]):
@@ -123,32 +129,45 @@ def get_new_replays(known_names: Sequence[str]):
     return replays
 
 
-def collect_new_frags() -> tuple[list, list]:
-    frags = []
-    parsed_games = []
+def _known_replay_names() -> list[str]:
     try:
-        try:
-            with open('parsed_replays.json', 'r') as f:
-                known_names = json.load(f)
-        except FileNotFoundError:
-            known_names = []
+        names = json.loads(STATE_FILE.read_text())
+    except FileNotFoundError:
+        return []
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Could not read replay state %s", STATE_FILE)
+        return []
+    if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+        logger.error("Invalid replay state in %s", STATE_FILE)
+        return []
+    return names
 
-        for replay in get_new_replays(known_names):
-            known_names.append(replay.name)
-            parsed_games.append(replay.name)
+
+def mark_replays_processed(names: Sequence[str]) -> None:
+    """Persist replays only after their Telegram report was delivered."""
+    if not names:
+        return
+    known_names = sorted(set(_known_replay_names()).union(names))
+    temp_file = STATE_FILE.with_suffix(".tmp")
+    temp_file.write_text(json.dumps(known_names), encoding="utf-8")
+    temp_file.replace(STATE_FILE)
+
+
+def collect_new_frags() -> tuple[list[Frag], list[str]]:
+    """Return successful parses. Caller must acknowledge them after delivery."""
+    frags: list[Frag] = []
+    parsed_games: list[str] = []
+    try:
+        for replay in get_new_replays(_known_replay_names()):
             try:
                 replay_frags = get_frags(replay.url, replay.name)
-                frags.extend(replay_frags)
-            except Exception as e:
-                logger.exception("Failed to parse replay %s: %s", replay.name, e)
+            except Exception:
+                logger.exception("Failed to parse replay %s", replay.name)
                 continue
-
-        known_names.sort()
-        with open('parsed_replays.json', 'w') as f:
-            json.dump(known_names, f)
-
-    except Exception as e:
-        logger.exception("Replay collection failed: %s", e)
+            frags.extend(replay_frags)
+            parsed_games.append(replay.name)
+    except Exception:
+        logger.exception("Replay collection failed")
 
     return frags, parsed_games
 
