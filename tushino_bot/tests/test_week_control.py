@@ -1,4 +1,5 @@
 import unittest
+from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -10,21 +11,23 @@ import week_control
 
 class WeekControlTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
+        self.contexts = ExitStack()
+        self.addCleanup(self.contexts.close)
         self.week = {"id": 1, "week_key": "2026-W41", "slots": []}
         self.bot = AsyncMock(spec=Bot)
         self.bot.send_message.return_value = SimpleNamespace(message_id=99)
-        self.enterContext(patch.object(week_control, "CHAT_ID", "-100123"))
-        self.create_week = self.enterContext(patch.object(
+        self.contexts.enter_context(patch.object(week_control, "CHAT_ID", "-100123"))
+        self.create_week = self.contexts.enter_context(patch.object(
             week_control.slots_service, "create_or_get_active_week", return_value=self.week,
         ))
-        self.reset_week = self.enterContext(patch.object(
+        self.reset_week = self.contexts.enter_context(patch.object(
             week_control.slots_service, "reset_active_week", return_value=self.week,
         ))
-        self.get_message = self.enterContext(patch.object(
+        self.get_message = self.contexts.enter_context(patch.object(
             week_control.slots_service, "get_control_message",
             return_value={"chat_id": "-100123", "message_id": 42},
         ))
-        self.save_message = self.enterContext(patch.object(
+        self.save_message = self.contexts.enter_context(patch.object(
             week_control.slots_service, "save_control_message",
         ))
 
