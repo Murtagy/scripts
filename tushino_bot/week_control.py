@@ -1,9 +1,13 @@
 import asyncio
+import logging
 import os
 
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest, TelegramError
 
 import slots_service
+
+logger = logging.getLogger(__name__)
 
 CHAT_ID = os.environ.get("CHAT_ID")
 THREAD_ID = int(os.environ.get("PLAYABLE_THREAD_ID", "54606"))
@@ -119,16 +123,22 @@ async def upsert_week_control_message(bot: Bot, force_new: bool = False) -> None
                 text=text,
                 reply_markup=keyboard,
             )
-        except Exception as exc:
-            if "message is not modified" not in str(exc).lower() and CHAT_ID:
-                message = await bot.send_message(
-                    CHAT_ID,
-                    text,
-                    reply_markup=keyboard,
-                    message_thread_id=THREAD_ID,
-                )
-                slots_service.save_control_message(week["id"], str(CHAT_ID), THREAD_ID, message.message_id)
-    elif CHAT_ID:
+        except TelegramError as exc:
+            error_text = str(exc).lower()
+            unchanged = isinstance(exc, BadRequest) and "message is not modified" in error_text
+            if unchanged:
+                return
+            logger.warning(
+                "Week control edit failed: week=%s chat=%s message=%s error=%s: %s",
+                week["week_key"], existing["chat_id"], existing["message_id"],
+                type(exc).__name__, exc,
+            )
+            message_missing = isinstance(exc, BadRequest) and "message to edit not found" in error_text
+            if not message_missing:
+                raise
+        else:
+            return
+    if CHAT_ID:
         message = await bot.send_message(
             CHAT_ID,
             text,

@@ -217,13 +217,6 @@ async def init_week_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await upsert_week_control_message(context.bot)
 
 
-async def refresh_week_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        await upsert_week_control_message(context.bot)
-    except Exception as exc:
-        logger.warning("Week refresh failed: %s", exc)
-
-
 def split_telegram_message(text: str, limit: int = 4000) -> list[str]:
     """Split report on lines, below Telegram's 4096-character limit."""
     chunks: list[str] = []
@@ -581,10 +574,14 @@ async def any_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 def main() -> None:
     init_db()
     slots_service.normalize_competitions()
-    slots_service.create_or_get_active_week()
+    week = slots_service.create_or_get_active_week()
+    closed_items = False
     now = datetime.datetime.now(TZ)
     if now.weekday() == 3 and (now.hour, now.minute) >= (9, 30):
-        slots_service.auto_close_open_items()
+        closed_items = bool(slots_service.auto_close_open_items())
+    control_message_missing = slots_service.get_control_message(week["id"]) is None
+    needs_week_message_update = closed_items or control_message_missing
+    if needs_week_message_update:
         week_control.refresh_week_control_sync()
     start_web_server()
 
@@ -603,7 +600,6 @@ def main() -> None:
     application.job_queue.run_repeating(create_poll, interval=60 * 60 * 24, first=get_scheduled_time(9, 0))
     application.job_queue.run_repeating(close_slots_job, interval=60 * 60 * 24, first=get_scheduled_time(9, 30))
     application.job_queue.run_repeating(init_week_job, interval=60 * 60 * 24, first=get_scheduled_time(9, 5))
-    application.job_queue.run_repeating(refresh_week_job, interval=60 * 5, first=10)
     application.job_queue.run_repeating(report_frags, interval=60 * 60, first=5)
     application.run_polling()
 
