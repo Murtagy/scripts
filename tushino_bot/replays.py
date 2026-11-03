@@ -1,14 +1,17 @@
 import datetime
 import json
 import logging
+import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
+from urllib.parse import urlencode, urlsplit
 
 import requests
 
 logger = logging.getLogger(__name__)
-REPLAY_BASE_URL = "https://replay.tsgames.ru/rv"
+REPLAY_API_URL = "https://replay-relay.murtagy.stream/replay"
 STATE_FILE = Path(__file__).with_name("parsed_replays.json")
 # T2 and T3 game servers, limited to TSG replays.
 REPLAY_FILTERS = (2, 3, 10)
@@ -38,11 +41,41 @@ class Replay:
     url: str
 
 
+def _get_replay_response(
+    url: str, *, timeout: tuple[int, int], params: Mapping[str, str | int] | None = None,
+) -> requests.Response:
+    target = urlsplit(url)
+    valid_target = (
+        target.scheme == "https" and target.netloc == "replay-relay.murtagy.stream"
+        and target.path == "/replay" and not target.fragment
+    )
+    if not valid_target:
+        raise ValueError("Replay URL is not allowed")
+
+    credential_dir = os.environ.get("CREDENTIALS_DIRECTORY")
+    if not credential_dir:
+        raise RuntimeError("Replay relay credentials unavailable")
+    try:
+        token = (Path(credential_dir) / "replay-relay-token").read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError):
+        raise RuntimeError("Replay relay credentials unavailable") from None
+    if not re.fullmatch(r"[0-9a-f]{64}", token):
+        raise RuntimeError("Replay relay credentials invalid")
+
+    response = requests.get(
+        url, params=params, timeout=timeout,
+        headers={"Authorization": f"Bearer {token}"}, allow_redirects=False,
+    )
+    if 300 <= response.status_code < 400:
+        raise RuntimeError("Replay relay redirects are not allowed")
+    response.raise_for_status()
+    return response
+
+
 def get_frags(url: str, mission: str) -> list[Frag]:
     frags = []
 
-    get_replay = requests.get(url, timeout=(10, 120))
-    get_replay.raise_for_status()
+    get_replay = _get_replay_response(url, timeout=(10, 120))
     payload = get_replay.json()
     if payload.get("error"):
         raise RuntimeError(f"Replay server error: {payload['error']}")
@@ -100,8 +133,7 @@ def _list_replays_page(offset: int = 0, today: datetime.date | None = None) -> d
     params = {"a": "l", "params[offset]": offset}
     params.update({f"params[f][{i}]": value for i, value in enumerate(filters)})
 
-    r = requests.get(f"{REPLAY_BASE_URL}/ajax.php", params=params, timeout=(10, 30))
-    r.raise_for_status()
+    r = _get_replay_response(REPLAY_API_URL, params=params, timeout=(10, 30))
     payload = r.json()
     if payload.get("error"):
         raise RuntimeError(f"Replay server error: {payload['error']}")
@@ -120,7 +152,8 @@ def get_new_replays(known_names: Sequence[str]):
             name = row['name']
             if name in seen:
                 continue
-            url = f'{REPLAY_BASE_URL}/ajax.php?a=gl&params[f]={name}&params[ar]=0&params[a]=3'
+            query = urlencode({"a": "gl", "params[f]": name, "params[ar]": 0, "params[a]": 3})
+            url = f"{REPLAY_API_URL}?{query}"
             replays.append(Replay(name=name, url=url))
             seen.add(name)
         if not page.get('more') or not rows:
@@ -174,7 +207,7 @@ def collect_new_frags() -> tuple[list[Frag], list[str]]:
 
 if __name__ == "__main__":
     # frag_print(
-    #     'https://replay.tsgames.ru/ajax.php?a=gl&params%5Bf%5D=T4.2024-06-21-23-40-40.tsg%40170_fra_Ihtamnet_M_v15.tem_kujari&params%5Bar%5D=1&params%5Ba%5D=3',
+    #     'https://replay-relay.murtagy.stream/replay?a=gl&params%5Bf%5D=T4.2024-06-21-23-40-40.tsg%40170_fra_Ihtamnet_M_v15.tem_kujari&params%5Bar%5D=1&params%5Ba%5D=3',
     #     '[DER]'
     # )
     frags, games = collect_new_frags()
