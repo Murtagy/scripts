@@ -1,0 +1,12 @@
+{
+  "ingress": [
+    {
+      "hostname": "slots.murtagy.stream",
+      "path": "^/($|health$|static/|api/)",
+      "service": "http://127.0.0.1:8000"
+    },
+    {
+      "service": "http_status:404"
+    }
+  ]
+}

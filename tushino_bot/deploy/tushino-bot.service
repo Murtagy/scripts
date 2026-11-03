@@ -1,0 +1,15 @@
+[Unit]
+Description=Tushino Telegram bot and local HTTP API
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/http/scripts/tushino_bot
+ExecStart=/usr/local/sbin/tushino-run
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

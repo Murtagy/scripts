@@ -45,6 +45,17 @@ class WeekJobTests(unittest.TestCase):
         tg_bot.main()
         self.refresh.assert_called_once_with()
 
+    def test_tunnel_commands_are_not_registered(self) -> None:
+        tg_bot.main()
+        commands = {
+            command
+            for call in self.application.add_handler.call_args_list
+            if isinstance(call.args[0], tg_bot.CommandHandler)
+            for command in call.args[0].commands
+        }
+        self.assertIn("app", commands)
+        self.assertTrue(commands.isdisjoint({"tunnel_status", "tunnel_restart"}))
+
     def test_no_periodic_week_refresh(self) -> None:
         tg_bot.main()
         jobs = self.application.job_queue.run_repeating.call_args_list

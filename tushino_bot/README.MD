@@ -116,8 +116,6 @@ bash ./run.sh
 - `/slots` — summary недели
 - `/undo_roll` — отменить свой последний бросок за текущую неделю
 - `/logs [N]` — показать последние действия, по умолчанию 20
-- `/tunnel_status` — статус Cloudflare Tunnel
-- `/tunnel_restart` — перезапустить Cloudflare Tunnel и обновить URL/menu button
 - `/week_init` — перерисовать/обновить week message
 - `/week_reset` — пересоздать неделю
 
@@ -206,22 +204,12 @@ cmds = {
     {"command": "slots", "description": "Показать слоты недели"},
     {"command": "undo_roll", "description": "Отменить последний бросок"},
     {"command": "logs", "description": "Показать журнал действий"},
-    {"command": "tunnel_status", "description": "Статус Cloudflare Tunnel"},
-    {"command": "tunnel_restart", "description": "Перезапустить Cloudflare Tunnel"},
     {"command": "week_init", "description": "Обновить сообщения недели"},
     {"command": "week_reset", "description": "Пересоздать неделю"}
   ]
 }
 print(requests.post(url, json=cmds, timeout=30).json())
 PY
-```
-
-Если miniapp перестал открываться из-за Quick Tunnel:
-
-```text
-/app
-/tunnel_status
-/tunnel_restart
 ```
 
 ## Проверка
