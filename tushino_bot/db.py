@@ -155,6 +155,62 @@ def init_db() -> None:
                 FOREIGN KEY(week_id) REFERENCES weeks(id)
             );
 
+            CREATE TABLE IF NOT EXISTS plan_missions (
+                mission_id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                url TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS plan_topics (
+                chat_id TEXT NOT NULL,
+                reference INTEGER NOT NULL,
+                thread_id INTEGER NOT NULL,
+                event_date TEXT NOT NULL,
+                name TEXT NOT NULL,
+                PRIMARY KEY(chat_id, reference)
+            );
+
+            CREATE TABLE IF NOT EXISTS plan_deliveries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id TEXT NOT NULL,
+                reference INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                identity TEXT NOT NULL,
+                text TEXT NOT NULL,
+                image_url TEXT,
+                sent_parts INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(chat_id, reference, kind, identity)
+            );
+
+            CREATE TABLE IF NOT EXISTS plan_messages (
+                chat_id TEXT NOT NULL,
+                reference INTEGER NOT NULL,
+                kind TEXT NOT NULL CHECK(kind IN ('plan','image')),
+                identity TEXT NOT NULL,
+                text TEXT NOT NULL,
+                image_url TEXT,
+                message_id INTEGER,
+                sent_text TEXT,
+                media_type TEXT CHECK(media_type IN ('text','photo','document','plan_document','legacy')),
+                album_key TEXT CHECK(album_key IN ('ally','enemy')),
+                media_group_id TEXT,
+                active INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY(chat_id,reference,kind,identity)
+            );
+
+            CREATE TABLE IF NOT EXISTS plan_message_deletions (
+                chat_id TEXT NOT NULL,
+                reference INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                attempted INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(chat_id,message_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS plan_api_clock (
+                id INTEGER PRIMARY KEY CHECK(id=1),
+                next_request REAL NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS action_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 week_id INTEGER,
@@ -171,6 +227,18 @@ def init_db() -> None:
             );
             """
         )
+        if "image_url" not in _table_columns(conn, "plan_deliveries"):
+            conn.execute("ALTER TABLE plan_deliveries ADD COLUMN image_url TEXT")
+        if "attempted" not in _table_columns(conn, "plan_message_deletions"):
+            conn.execute("ALTER TABLE plan_message_deletions ADD COLUMN attempted INTEGER NOT NULL DEFAULT 0")
+        for column in ("album_key", "media_group_id"):
+            if column not in _table_columns(conn, "plan_messages"):
+                conn.execute(f"ALTER TABLE plan_messages ADD COLUMN {column} TEXT")
+        # Old versions recorded successful image sends, but not Telegram IDs. Do not repost them.
+        conn.execute("""INSERT OR IGNORE INTO plan_messages
+            (chat_id,reference,kind,identity,text,image_url,sent_text,media_type,active)
+            SELECT chat_id,reference,'image',identity,text,image_url,text,'legacy',0
+            FROM plan_deliveries WHERE kind='image' AND image_url IS NOT NULL AND sent_parts>0""")
         _migrate_rolls_table(conn)
         _migrate_item_competitions_table(conn)
         conn.commit()

@@ -12,6 +12,7 @@ class WeekJobTests(unittest.TestCase):
     def setUp(self) -> None:
         self.contexts = ExitStack()
         self.addCleanup(self.contexts.close)
+        self.contexts.enter_context(patch.dict(os.environ, {"HEADQUARTERS_ACCESS_TOKEN": ""}))
         self.contexts.enter_context(patch.object(tg_bot, "init_db"))
         self.contexts.enter_context(patch.object(tg_bot.slots_service, "normalize_competitions", return_value=0))
         self.contexts.enter_context(patch.object(tg_bot.slots_service, "create_or_get_active_week", return_value={"id": 1}))
@@ -55,6 +56,15 @@ class WeekJobTests(unittest.TestCase):
         }
         self.assertIn("app", commands)
         self.assertTrue(commands.isdisjoint({"tunnel_status", "tunnel_restart"}))
+
+    def test_plan_polling_is_enabled_only_with_headquarters_token(self) -> None:
+        with patch.dict(os.environ, {"HEADQUARTERS_ACCESS_TOKEN": "test-token"}):
+            tg_bot.main()
+        jobs = self.application.job_queue.run_repeating.call_args_list
+        plan_jobs = [job for job in jobs if job.args[0] is tg_bot.sync_plans_job]
+        self.assertEqual(len(plan_jobs), 1)
+        self.assertEqual(plan_jobs[0].kwargs["interval"], 30)
+        self.assertIsNotNone(tg_bot.plans)
 
     def test_no_periodic_week_refresh(self) -> None:
         tg_bot.main()

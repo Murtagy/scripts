@@ -17,6 +17,7 @@ from telegram.ext import (
     filters,
 )
 
+import plan_monitor
 import replays
 import slots_service
 import week_control
@@ -48,6 +49,7 @@ ALLOWED_MEMBER_STATUSES = {"creator", "administrator", "member", "restricted", "
 
 chat = None
 replay_report_lock = asyncio.Lock()
+plans: plan_monitor.PlanMonitor | None = None
 if AI_KEY:
     from google import genai
 
@@ -220,6 +222,11 @@ async def report_frags(context: ContextTypes.DEFAULT_TYPE) -> None:
                 await context.bot.send_message(CHAT_ID, response, message_thread_id=THREAD_ID)
             except Exception as exc:
                 logger.warning("AI commentary failed: %s", exc)
+
+
+async def sync_plans_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    if plans is not None:
+        await plans.poll(context.bot)
 
 
 async def command_app(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -463,6 +470,8 @@ async def any_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 def main() -> None:
+    global plans
+    plans = None
     init_db()
     slots_service.normalize_competitions()
     week = slots_service.create_or_get_active_week()
@@ -490,6 +499,13 @@ def main() -> None:
     application.job_queue.run_repeating(close_slots_job, interval=60 * 60 * 24, first=get_scheduled_time(9, 30))
     application.job_queue.run_repeating(init_week_job, interval=60 * 60 * 24, first=get_scheduled_time(9, 5))
     application.job_queue.run_repeating(report_frags, interval=60 * 60, first=5)
+    headquarters_token = os.environ.get("HEADQUARTERS_ACCESS_TOKEN", "")
+    if headquarters_token:
+        plans = plan_monitor.PlanMonitor(
+            plan_monitor.HeadquartersAPI(headquarters_token), plan_monitor.PlanStore(), CHAT_ID,
+            lambda: datetime.datetime.now(TZ),
+        )
+        application.job_queue.run_repeating(sync_plans_job, interval=30, first=10)
     application.run_polling()
 
 
